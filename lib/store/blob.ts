@@ -102,18 +102,68 @@ const MAX_GEO_CYCLES = 180;
 
 export async function getGeoState(): Promise<GeoState> {
   const raw = hasBlob() ? await readJson<Partial<GeoState>>(GEO_STATE_KEY) : mem.geo;
-  // Normalize: guarantee every collection exists even if the stored blob is
-  // from an older schema or partially written.
+  return sanitizeGeoState(raw);
+}
+
+/**
+ * Normalize a stored state so legacy/partial/corrupt blobs can never crash the
+ * pipeline: every collection exists and every item carries required fields.
+ */
+export function sanitizeGeoState(raw: Partial<GeoState> | null | undefined): GeoState {
   const empty = emptyGeoState();
+  const now = new Date().toISOString();
+  const arr = <T>(v: unknown): T[] => (Array.isArray(v) ? (v as T[]) : []);
+
+  const keywords = arr<Partial<GeoState["keywords"][number]>>(raw?.keywords)
+    .filter((k) => typeof k?.keyword === "string" && k.keyword.trim() !== "")
+    .map((k) => ({
+      keyword: k.keyword!,
+      intent: typeof k.intent === "string" ? k.intent : "unknown",
+      rationale: typeof k.rationale === "string" ? k.rationale : "",
+      priority: typeof k.priority === "number" ? k.priority : 3,
+      status: (k.status === "written" || k.status === "published" ? k.status : "pending") as GeoState["keywords"][number]["status"],
+      createdAt: typeof k.createdAt === "string" ? k.createdAt : now,
+      articleSlug: typeof k.articleSlug === "string" ? k.articleSlug : undefined,
+    }));
+
+  const articles = arr<Partial<GeoState["articles"][number]>>(raw?.articles)
+    .filter((a) => typeof a?.slug === "string" && typeof a?.title === "string")
+    .map((a) => ({
+      slug: a.slug!,
+      keyword: typeof a.keyword === "string" ? a.keyword : "",
+      title: a.title!,
+      description: typeof a.description === "string" ? a.description : "",
+      tags: arr<string>(a.tags),
+      markdown: typeof a.markdown === "string" ? a.markdown : "",
+      quoraAnswer: typeof a.quoraAnswer === "string" ? a.quoraAnswer : "",
+      redditPost: typeof a.redditPost === "string" ? a.redditPost : "",
+      canonicalUrl: typeof a.canonicalUrl === "string" ? a.canonicalUrl : "",
+      createdAt: typeof a.createdAt === "string" ? a.createdAt : now,
+      aiGenerated: Boolean(a.aiGenerated),
+      publishResults: arr<GeoState["articles"][number]["publishResults"][number]>(a.publishResults),
+    }));
+
+  const draftQueue = arr<Partial<GeoState["draftQueue"][number]>>(raw?.draftQueue)
+    .filter((d) => typeof d?.content === "string" && (d.platform === "medium" || d.platform === "quora"))
+    .map((d) => ({
+      platform: d.platform!,
+      articleSlug: typeof d.articleSlug === "string" ? d.articleSlug : "",
+      title: typeof d.title === "string" ? d.title : "",
+      content: d.content!,
+      createdAt: typeof d.createdAt === "string" ? d.createdAt : now,
+    }));
+
   return {
-    ...empty,
-    ...(raw ?? {}),
-    keywords: Array.isArray(raw?.keywords) ? raw.keywords : empty.keywords,
-    articles: Array.isArray(raw?.articles) ? raw.articles : empty.articles,
-    draftQueue: Array.isArray(raw?.draftQueue) ? raw.draftQueue : empty.draftQueue,
-    signalFirstSeen: raw?.signalFirstSeen ?? empty.signalFirstSeen,
-    signalHistory: Array.isArray(raw?.signalHistory) ? raw.signalHistory : empty.signalHistory,
-    cycles: Array.isArray(raw?.cycles) ? raw.cycles : empty.cycles,
+    keywords,
+    articles,
+    draftQueue,
+    signalFirstSeen:
+      raw?.signalFirstSeen && typeof raw.signalFirstSeen === "object"
+        ? raw.signalFirstSeen
+        : empty.signalFirstSeen,
+    signalHistory: arr(raw?.signalHistory),
+    cycles: arr(raw?.cycles),
+    telegraphToken: typeof raw?.telegraphToken === "string" ? raw.telegraphToken : undefined,
   };
 }
 
