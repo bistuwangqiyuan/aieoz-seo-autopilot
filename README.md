@@ -1,37 +1,49 @@
-# AI SEO Autopilot · 中科存储 (goni.top)
+# AI SEO + GEO Autopilot · 中科存储 (goni.top)
 
-全自动、无人值守的 **AI 驱动 SEO 优化平台**。面向 **中科存储 ZK-Storage WS5000** 官网（`https://goni.top`），
-平台 **7×24 小时** 自动运行，全流程零人工参与：
+全自动、无人值守的 **AI 驱动 SEO / GEO 优化平台**。面向 **中科存储 ZK-Storage WS5000** 官网（`https://goni.top`），
+平台 **7×24 小时、每 4 小时一轮** 自动运行，全流程零人工参与。
+
+## 两条自动化流水线
+
+### 1. SEO 闭环（扫描 → 评分 → 优化 → 写回）
 
 1. **抓取** 目标页面、`sitemap.xml`、`robots.txt`
 2. **审计 + 评分**：基于 7 大类、约 20 项 SEO 规则计算 0–100 分
 3. **AI 优化**：通过 **Vercel AI Gateway** 生成可直接落地的优化产物
-4. **持久化**：评分快照与历史趋势存入 **Vercel Blob**
-5. **可视化**：实时仪表盘展示分数、趋势、分项明细与优化产物
+4. **自动写回**：将缺失的 meta/JSON-LD/sitemap 以最小 diff 自动 commit 回源码仓库（可开关/演练）
+5. **可视化**：仪表盘展示分数、趋势、分项明细与优化产物
 
-> 说明：平台对 goni.top 仅做 **分析 + 产物生成**（不直接写入目标站点）。
-> 它输出可一键复制、直接粘贴到目标页面 `<head>` 或站点根目录的优化产物。
+### 2. GEO 四步循环（生成式引擎优化，每 4 小时）
+
+1. **AI 挖词**：挖掘欧美企业买家在 ChatGPT/Perplexity 中高频提问的英文长尾词
+   （如 "best all-flash storage for gpu cluster training"），词池去重、优先级排序
+2. **AI 写文**：为最高优先级词批量生产「问题解答型」权威英文长文
+   （1200+ 词，含数据、对比表、行业术语、FAQ），自然带出 WS5000 与 goni.top 链接（带 UTM 归因）
+3. **多平台自动分发**：
+   - **goni.top 博客**：渲染为独立 HTML 页（Article JSON-LD + canonical），GitHub commit 自动上线，自动追加 sitemap
+   - **Dev.to / Hashnode / Telegraph / Reddit**：官方 API 全自动发布（canonical 指回博客页）
+   - **Medium / Quora**：无官方发布 API，自动生成平台格式成稿进入仪表盘一键复制队列
+4. **GA4 信号检测**：检查近 7 天流量来源中是否出现
+   `reddit.com`（Referral）、`perplexity`、`chatgpt/openai` —— GEO 生效的三大信号，
+   仪表盘信号灯展示首次出现时间与会话数
 
 ## 架构
 
 ```
-Vercel Cron (每小时)  ─┐
-Dashboard「立即运行」 ─┼─►  /api/(cron/)scan
-                        │        │
-                        │   crawl (cheerio)
-                        │        ▼
-                        │   audit + score
-                        │        ▼
-                        │   AI optimize (AI Gateway · generateObject)
-                        │        ▼
-                        └─►  Vercel Blob (latest.json + history.json) ─► Dashboard /
+Vercel Cron (每4小时) ──► /api/cron/scan ──┬── SEO: crawl → audit → AI optimize → writeback → Blob
+Dashboard 手动按钮 ──► /api/scan /api/geo ─┴── GEO: mine keywords → write article → distribute → GA4 signals → Blob
+                                                            │
+                    goni.top blog (GitHub commit) ◄─────────┤
+                    Dev.to / Hashnode / Telegraph / Reddit ◄┤ (官方 API)
+                    Medium / Quora 成稿队列 (仪表盘复制) ◄──┘
 ```
 
 ## 技术栈
 
 - **Next.js 15**（App Router, TypeScript）+ Tailwind CSS
 - **Vercel AI SDK 5** + **AI Gateway**（`generateObject` + zod 结构化输出）
-- **cheerio**（HTML 解析）、**@vercel/blob**（持久化）、**recharts**（趋势图）
+- **cheerio**（HTML 解析）、**marked**（Markdown 渲染）、**@vercel/blob**（持久化）、**recharts**（趋势图）
+- **GitHub Contents/Git Data API**（写回 + 博客发布）、**GA4 Data API**（服务账号 RS256 JWT，无重依赖）
 - **Vercel Cron** 调度 + `CRON_SECRET` 鉴权
 
 ## 本地开发
@@ -42,56 +54,82 @@ cp .env.example .env.local   # 填入密钥（无密钥也可运行，自动降�
 npm run dev                  # http://localhost:3000
 ```
 
-未配置 `AI_GATEWAY_API_KEY` 时，AI 引擎会自动降级为内置的启发式产物生成，
-未配置 `BLOB_READ_WRITE_TOKEN` 时，使用进程内内存存储（仅本地）。
+优雅降级策略：未配置 `AI_GATEWAY_API_KEY` → 启发式内容；未配置 `BLOB_READ_WRITE_TOKEN` → 内存存储（仅本地）；
+未配置平台密钥 → 对应平台自动跳过；未配置 GA4 → 信号面板显示等待凭据，其余照常。
 
 ## 环境变量
 
+### 核心
+
 | 变量 | 说明 |
 | --- | --- |
-| `AI_GATEWAY_API_KEY` | Vercel AI Gateway 密钥（用于 AI 生成优化产物） |
+| `AI_GATEWAY_API_KEY` | Vercel AI Gateway 密钥（AI 产物 + GEO 挖词写文） |
 | `AI_MODEL` | 通过 Gateway 调用的模型，默认 `openai/gpt-4o-mini` |
 | `BLOB_READ_WRITE_TOKEN` | 在 Vercel 创建 Blob 存储后自动注入 |
-| `CRON_SECRET` | 保护 `/api/cron/scan`，Vercel Cron 以 Bearer Token 形式发送 |
-| `TARGET_URLS` | 待优化页面（逗号分隔），默认 goni.top 中/英文首页 |
-| `TARGET_ORIGIN` | 目标站点根域，用于 sitemap/robots 检查 |
+| `CRON_SECRET` | 保护 `/api/cron/scan` |
+| `TARGET_URLS` / `TARGET_ORIGIN` | 优化目标页面 / 根域 |
+
+### SEO 写回 + GEO 博客发布
+
+| 变量 | 说明 |
+| --- | --- |
+| `GITHUB_TOKEN` | 对目标源码仓库有 contents:write 权限的 PAT |
+| `GONI_REPO` / `GONI_BRANCH` / `GONI_PUBLISH_DIR` | goni.top 源码仓库 owner/name、分支、发布目录 |
+| `SEO_WRITEBACK_ENABLED` / `SEO_WRITEBACK_DRYRUN` | 写回开关 / 演练模式 |
+
+### GEO 多平台分发
+
+| 变量 | 获取方式 |
+| --- | --- |
+| `GEO_ENABLED` / `GEO_ARTICLES_PER_RUN` | GEO 开关（默认开）/ 每轮文章数（默认 1） |
+| `DEVTO_API_KEY` | dev.to → Settings → Extensions → Generate API Key |
+| `HASHNODE_PAT` + `HASHNODE_PUBLICATION_ID` | hashnode.com → Settings → Developer；publication id 见博客后台 URL |
+| `REDDIT_CLIENT_ID/SECRET/USERNAME/PASSWORD` | reddit.com/prefs/apps 创建 **script** 应用（发布到自己 profile，合规） |
+| `GA4_PROPERTY_ID` + `GA4_SERVICE_ACCOUNT_JSON` | GA4 属性 ID + base64 服务账号 JSON（授予属性 Viewer 权限） |
+
+Telegraph 零配置自动发布（匿名 API，token 自动创建并保存）。
 
 ## 部署到 Vercel
 
 ```bash
-# 1. 推送到 GitHub
-git init && git add -A && git commit -m "feat: AI SEO autopilot"
-git remote add origin <your-repo-url>
-git push -u origin main
-
-# 2. 在 Vercel 关联该仓库（或使用 CLI）
-vercel link
-vercel blob store add ai-seo-autopilot     # 创建 Blob 存储，自动注入 BLOB_READ_WRITE_TOKEN
-vercel env add AI_GATEWAY_API_KEY           # 粘贴 AI Gateway 密钥
-vercel env add CRON_SECRET                  # 任意长随机字符串
+git push                                     # 推送后 Vercel 自动部署（已关联仓库）
+vercel blob store add ai-seo-autopilot       # 创建 Blob 存储
+vercel env add AI_GATEWAY_API_KEY
+vercel env add CRON_SECRET
+# 按需添加 GITHUB_TOKEN / DEVTO_API_KEY / REDDIT_* / GA4_* 等
 vercel --prod
 ```
 
 ### 自动调度
 
-`vercel.json` 中已配置每小时一次的 Cron：
+`vercel.json` 已配置每 4 小时一次的 Cron：
 
 ```json
-{ "crons": [{ "path": "/api/cron/scan", "schedule": "0 * * * *" }] }
+{ "crons": [{ "path": "/api/cron/scan", "schedule": "0 */4 * * *" }] }
 ```
 
-> **注意**：每小时 Cron 需要 **Vercel Pro** 套餐。若使用 Hobby 免费套餐，
-> 请将 `schedule` 改为 `0 0 * * *`（每日一次）。
+> **注意**：高频 Cron 需要 **Vercel Pro** 套餐。Hobby 免费套餐请改为 `0 0 * * *`（每日一次）。
 
 ## 接口
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
-| `GET` | `/api/cron/scan` | Vercel Cron 调用，需 `Authorization: Bearer $CRON_SECRET` |
-| `POST` | `/api/scan` | 仪表盘「立即运行」手动触发 |
+| `GET` | `/api/cron/scan` | Cron 入口：先跑 SEO 扫描+写回，再跑 GEO 四步循环 |
+| `POST` | `/api/scan` | 手动触发 SEO 扫描 |
+| `POST` | `/api/geo` | 手动触发 GEO 循环 |
 
 ## SEO 评分维度
 
 元数据、Open Graph / Twitter、内容结构（H1/层级/字数/图片 alt）、
 结构化数据（JSON-LD）、国际化与索引（lang/hreflang/robots）、
 移动端与 PWA（viewport/manifest/favicon/theme-color）、链接与性能（内链/锚文本/资源提示/sitemap）。
+
+## GEO 生效判定（第 4 步）
+
+GA4 近 7 天流量来源中出现以下任一信号即表示 GEO 开始生效：
+
+- **Referral** 中出现 `reddit.com`
+- **来源** 中出现 `perplexity` 相关（Perplexity 引用站点）
+- **来源** 中出现 `chatgpt` / `openai` 相关（ChatGPT 引用站点）
+
+未出现时平台会继续按 4 小时节奏积累内容与平台覆盖密度 —— GEO 是信号积累过程，而非一次性操作。

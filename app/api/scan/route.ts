@@ -15,6 +15,7 @@ export async function POST() {
       score: snapshot.score,
       aiGenerated: snapshot.artifacts.aiGenerated,
       durationMs: snapshot.durationMs,
+      writeback: snapshot.writeback,
     });
   } catch (err) {
     console.error("[scan] manual scan failed:", err);

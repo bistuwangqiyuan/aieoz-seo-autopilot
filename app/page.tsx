@@ -1,20 +1,21 @@
-import { getLatest, listHistory, storageMode } from "@/lib/store/blob";
+import { getGeoState, getLatest, listHistory, storageMode } from "@/lib/store/blob";
 import { getModelId, getTargetUrls, hasAiKey } from "@/lib/config";
 import { ScoreGauge } from "@/components/score-gauge";
 import { TrendChart } from "@/components/trend-chart";
 import { CategoryBreakdown } from "@/components/category-breakdown";
 import { CopyBlock } from "@/components/artifact-card";
 import { RunNowButton } from "@/components/run-now-button";
+import { GeoPanel } from "@/components/geo-panel";
 import { impactBadge, scoreTone, timeAgo } from "@/lib/format";
 import type { HistoryPoint, Snapshot } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-function nextHourLabel(): string {
+function nextRunLabel(): string {
   const d = new Date();
   d.setMinutes(0, 0, 0);
-  d.setHours(d.getHours() + 1);
+  d.setHours(d.getHours() + (4 - (d.getHours() % 4)));
   return d.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
 }
 
@@ -34,7 +35,11 @@ function Chip({ label, value, tone = "default" }: { label: string; value: string
 }
 
 export default async function DashboardPage() {
-  const [latest, history] = await Promise.all([getLatest(), listHistory()]);
+  const [latest, history, geoState] = await Promise.all([
+    getLatest(),
+    listHistory(),
+    getGeoState(),
+  ]);
   const targets = getTargetUrls();
   const aiOn = hasAiKey();
 
@@ -47,6 +52,10 @@ export default async function DashboardPage() {
       ) : (
         <EmptyState targets={targets} />
       )}
+
+      <div className="mt-6">
+        <GeoPanel state={geoState} />
+      </div>
 
       <Footer targets={targets} />
     </main>
@@ -71,16 +80,16 @@ function Header({ aiOn, model, storage }: { aiOn: boolean; model: string; storag
             全自动 <span className="bg-gradient-to-r from-brand-glow to-accent bg-clip-text text-transparent">AI SEO</span> 优化平台
           </h1>
           <p className="mt-2 max-w-2xl text-sm text-white/55 md:text-base">
-            面向 <span className="text-white/80">中科存储 · goni.top</span> 官网的无人值守 SEO 优化服务。
-            每小时自动审计、AI 评分并生成可直接落地的优化产物，全流程零人工参与。
+            面向 <span className="text-white/80">中科存储 · goni.top</span> 官网的无人值守 SEO + GEO 优化服务。
+            每 4 小时自动审计评分、写回优化、AI 挖词写文并多平台分发，全流程零人工参与。
           </p>
         </div>
         <RunNowButton />
       </div>
 
       <div className="mt-5 flex flex-wrap gap-2">
-        <Chip label="自动调度" value="每小时 (Vercel Cron)" />
-        <Chip label="下次运行" value={`约 ${nextHourLabel()}`} />
+        <Chip label="自动调度" value="每 4 小时 (Vercel Cron)" />
+        <Chip label="下次运行" value={`约 ${nextRunLabel()}`} />
         <Chip label="AI 引擎" value={aiOn ? model : "未配置密钥 (启发式)"} tone={aiOn ? "ok" : "warn"} />
         <Chip label="存储" value={storage === "blob" ? "Vercel Blob" : "内存(本地)"} tone={storage === "blob" ? "ok" : "warn"} />
       </div>
@@ -122,6 +131,9 @@ function Dashboard({ latest, history }: { latest: Snapshot; history: HistoryPoin
         </div>
         <p className="mt-1 text-sm text-white/80">{a.summary}</p>
       </section>
+
+      {/* Writeback (closed-loop auto-commit) status */}
+      {latest.writeback && <WritebackPanel wb={latest.writeback} />}
 
       {/* Per-page breakdown */}
       <section className="grid gap-6 md:grid-cols-2">
@@ -236,6 +248,65 @@ function Dashboard({ latest, history }: { latest: Snapshot; history: HistoryPoin
   );
 }
 
+function WritebackPanel({ wb }: { wb: NonNullable<Snapshot["writeback"]> }) {
+  const status = wb.error
+    ? { label: "失败", tone: "warn" as const }
+    : wb.applied
+      ? { label: "已自动提交", tone: "ok" as const }
+      : !wb.enabled
+        ? { label: "未启用", tone: "default" as const }
+        : wb.dryRun
+          ? { label: "演练 (Dry-run)", tone: "warn" as const }
+          : { label: "已收敛 (无需变更)", tone: "ok" as const };
+
+  return (
+    <section className="glass rounded-2xl p-5">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <h2 className="text-sm font-semibold text-white/80">自动写回（闭环）</h2>
+        <div className="flex flex-wrap gap-2">
+          <Chip label="状态" value={status.label} tone={status.tone} />
+          <Chip label="仓库" value={wb.repo} />
+          <Chip label="分支" value={wb.branch} />
+        </div>
+      </div>
+
+      {wb.commitUrl && (
+        <p className="text-xs text-white/60">
+          提交：{" "}
+          <a href={wb.commitUrl} target="_blank" rel="noreferrer" className="text-accent hover:underline">
+            {wb.commitSha?.slice(0, 7)}
+          </a>{" "}
+          → Netlify 将自动重建，下次扫描验证分数变化。
+        </p>
+      )}
+      {wb.skippedReason && !wb.commitUrl && (
+        <p className="text-xs text-white/50">{wb.skippedReason}</p>
+      )}
+      {wb.error && <p className="text-xs text-warn">错误：{wb.error}</p>}
+
+      {wb.changedFiles.length > 0 && (
+        <ul className="mt-3 space-y-2">
+          {wb.changedFiles.map((f) => (
+            <li key={f.path} className="rounded-xl border border-edge/50 bg-white/[0.02] p-3 text-xs">
+              <div className="font-medium text-white/80">{f.path}</div>
+              <div className="mt-0.5 text-white/50">{f.summary}</div>
+              {f.edits.length > 0 && (
+                <div className="mt-1 flex flex-wrap gap-1">
+                  {f.edits.map((e, i) => (
+                    <span key={i} className="rounded border border-edge px-1.5 py-0.5 text-[10px] text-white/55">
+                      {e}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
 function EmptyState({ targets }: { targets: string[] }) {
   return (
     <section className="glass flex flex-col items-center rounded-2xl p-10 text-center">
@@ -244,7 +315,7 @@ function EmptyState({ targets }: { targets: string[] }) {
       </div>
       <h2 className="text-lg font-semibold">尚未运行首次扫描</h2>
       <p className="mt-2 max-w-md text-sm text-white/55">
-        平台会按计划每小时自动运行。你也可以点击右上角「立即运行一次扫描」，
+        平台会按计划每 4 小时自动运行。你也可以点击右上角「立即运行一次扫描」，
         立刻对以下目标执行首次 AI SEO 审计：
       </p>
       <ul className="mt-3 space-y-1 text-sm text-accent">
