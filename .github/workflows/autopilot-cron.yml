@@ -1,0 +1,31 @@
+name: Autopilot cron (SEO + GEO every 4 hours)
+
+# Vercel Hobby crons are limited to once per day, so GitHub Actions drives the
+# real 4-hour cadence by hitting the deployed cron endpoint. Zero human involvement.
+on:
+  schedule:
+    - cron: "0 */4 * * *"
+  workflow_dispatch: {}
+
+jobs:
+  trigger:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Trigger /api/cron/scan
+        env:
+          APP_URL: ${{ vars.APP_URL || 'https://aieoz-seo-autopilot.vercel.app' }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          set -euo pipefail
+          AUTH_ARGS=()
+          if [ -n "${CRON_SECRET}" ]; then
+            AUTH_ARGS=(-H "Authorization: Bearer ${CRON_SECRET}")
+          fi
+          echo "Triggering ${APP_URL}/api/cron/scan ..."
+          HTTP_CODE=$(curl -sS -o response.json -w "%{http_code}" \
+            --max-time 480 "${AUTH_ARGS[@]}" \
+            "${APP_URL}/api/cron/scan")
+          echo "HTTP ${HTTP_CODE}"
+          cat response.json
+          [ "${HTTP_CODE}" = "200" ]
