@@ -1,6 +1,6 @@
 import { marked } from "marked";
 import { GitHubClient, type CommitFile } from "@/lib/apply/github";
-import { getTargetOrigin, getWritebackConfig } from "@/lib/config";
+import { buildGtagSnippet, getTargetOrigin, getWritebackConfig } from "@/lib/config";
 import type { GeoArticle, PublishResult } from "@/lib/types";
 
 /**
@@ -136,6 +136,7 @@ export function renderArticleHtml(article: GeoArticle, origin: string): string {
 <meta name="twitter:card" content="summary_large_image" />
 <meta name="theme-color" content="#0a0a0f" />
 <link rel="icon" type="image/svg+xml" href="../assets/logo/favicon.svg" />
+${buildGtagSnippet()}
 <script type="application/ld+json">
 ${jsonLd}
 </script>
@@ -199,6 +200,7 @@ export function renderBlogIndex(articles: GeoArticle[], origin: string): string 
 <meta name="robots" content="index,follow" />
 <meta name="theme-color" content="#0a0a0f" />
 <link rel="icon" type="image/svg+xml" href="../assets/logo/favicon.svg" />
+${buildGtagSnippet()}
 <style>
 :root{color-scheme:dark}
 body{margin:0;background:#0a0a0f;color:#e8e8f0;font:16px/1.7 -apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}

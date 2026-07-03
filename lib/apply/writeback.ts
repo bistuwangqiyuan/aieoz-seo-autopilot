@@ -1,5 +1,5 @@
 import * as cheerio from "cheerio";
-import { getTargetOrigin, getWritebackConfig } from "@/lib/config";
+import { buildGtagSnippet, getTargetOrigin, getWritebackConfig } from "@/lib/config";
 import { GitHubClient, type CommitFile } from "@/lib/apply/github";
 import type { Snapshot, WritebackChange, WritebackResult } from "@/lib/types";
 
@@ -238,6 +238,12 @@ export function upsertHead(html: string, ctx: UpsertCtx): { html: string; edits:
       `<meta name="theme-color" content="${esc(ctx.themeColor)}" data-seo-autopilot="1" />`,
       "theme-color",
     );
+  }
+
+  // analytics: GA4 tag so Step-4 traffic-signal detection has data to read
+  if (!/googletagmanager\.com\/gtag|gtag\(/.test(html)) {
+    additions.push(buildGtagSnippet());
+    edits.push("ga4-gtag");
   }
 
   // richdata: only inject when fewer than 3 valuable types are present

@@ -85,7 +85,8 @@ npm run dev                  # http://localhost:3000
 | `DEVTO_API_KEY` | dev.to → Settings → Extensions → Generate API Key |
 | `HASHNODE_PAT` + `HASHNODE_PUBLICATION_ID` | hashnode.com → Settings → Developer；publication id 见博客后台 URL |
 | `REDDIT_CLIENT_ID/SECRET/USERNAME/PASSWORD` | reddit.com/prefs/apps 创建 **script** 应用（发布到自己 profile，合规） |
-| `GA4_PROPERTY_ID` + `GA4_SERVICE_ACCOUNT_JSON` | GA4 属性 ID + base64 服务账号 JSON（授予属性 Viewer 权限） |
+| `GA4_MEASUREMENT_ID` | G- 开头的测量 ID（默认 `G-SZCSMKM793`），自动注入博客页与写回页面做前端埋点 |
+| `GA4_PROPERTY_ID` + `GA4_SERVICE_ACCOUNT_JSON` | **纯数字**属性 ID（管理 → 媒体资源设置）+ base64 服务账号 JSON（授予属性 Viewer 权限），用于读取报表 |
 
 Telegraph 零配置自动发布（匿名 API，token 自动创建并保存）。
 

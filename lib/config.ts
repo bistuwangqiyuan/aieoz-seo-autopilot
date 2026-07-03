@@ -36,6 +36,21 @@ export function hasAiKey(): boolean {
 export const USER_AGENT =
   "AI-SEO-Autopilot/1.0 (+https://goni.top; autonomous SEO auditor)";
 
+/** GA4 measurement id (G-XXXXXXXX) used for frontend tagging of published pages. */
+export function getGa4MeasurementId(): string {
+  return process.env.GA4_MEASUREMENT_ID?.trim() || "G-SZCSMKM793";
+}
+
+/** Ready-to-inject gtag.js snippet for the configured measurement id. */
+export function buildGtagSnippet(): string {
+  const id = getGa4MeasurementId();
+  return (
+    `<script async src="https://www.googletagmanager.com/gtag/js?id=${id}"></script>\n` +
+    `<script>window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments);}` +
+    `gtag('js',new Date());gtag('config','${id}');</script>`
+  );
+}
+
 /* -------------------- Writeback (auto-commit to source repo) -------------------- */
 
 export interface WritebackConfig {
