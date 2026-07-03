@@ -101,8 +101,20 @@ const MAX_GEO_SIGNAL_CHECKS = 180; // ~30 days at 6 checks/day
 const MAX_GEO_CYCLES = 180;
 
 export async function getGeoState(): Promise<GeoState> {
-  if (!hasBlob()) return mem.geo ?? emptyGeoState();
-  return (await readJson<GeoState>(GEO_STATE_KEY)) ?? emptyGeoState();
+  const raw = hasBlob() ? await readJson<Partial<GeoState>>(GEO_STATE_KEY) : mem.geo;
+  // Normalize: guarantee every collection exists even if the stored blob is
+  // from an older schema or partially written.
+  const empty = emptyGeoState();
+  return {
+    ...empty,
+    ...(raw ?? {}),
+    keywords: Array.isArray(raw?.keywords) ? raw.keywords : empty.keywords,
+    articles: Array.isArray(raw?.articles) ? raw.articles : empty.articles,
+    draftQueue: Array.isArray(raw?.draftQueue) ? raw.draftQueue : empty.draftQueue,
+    signalFirstSeen: raw?.signalFirstSeen ?? empty.signalFirstSeen,
+    signalHistory: Array.isArray(raw?.signalHistory) ? raw.signalHistory : empty.signalHistory,
+    cycles: Array.isArray(raw?.cycles) ? raw.cycles : empty.cycles,
+  };
 }
 
 export async function saveGeoState(state: GeoState): Promise<void> {
