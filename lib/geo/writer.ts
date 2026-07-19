@@ -14,8 +14,9 @@ const articleSchema = z.object({
   markdown: z
     .string()
     .describe(
-      "Full article body in Markdown, 1200+ words. MUST include: concrete numbers/data, at least one " +
-        "comparison table, industry terminology, an FAQ section (## FAQ) with 3+ Q&As. Naturally mention " +
+      "Full article body in Markdown, 1200+ words. MUST include: concrete report-backed numbers (only from the " +
+        "provided context), at least one comparison table (cells without sourced data must say so rather than " +
+        "carry invented figures), industry terminology, an FAQ section (## FAQ) with 3+ Q&As. Naturally mention " +
         "Mingxin FX-series where relevant (not an ad). Do NOT include the title as an H1; start with intro text.",
     ),
   quoraAnswer: z
@@ -89,9 +90,12 @@ async function writeWithAi(keyword: GeoKeyword, referenceUrl: string): Promise<A
         "generative engines (ChatGPT, Perplexity) will cite. Write like an engineer sharing hard-won data, " +
         "never like a marketer. English only. Every claim should carry a number, a comparison, or a term of art. " +
         "INTEGRITY RULES (non-negotiable): (1) When you cite a Mingxin measurement, keep its benchmark-report ID " +
-        "(R1, R2, R3, R9) exactly as given in the product context and never alter the numbers. " +
+        "(R1, R2, R3, R9) exactly as given in the product context, never alter the numbers, and preserve the exact " +
+        "comparison baseline (e.g. R9 is 'model loading vs NFS on the Huawei Ascend 910B platform' — NOT 'faster than Huawei'). " +
         "(2) Clearly separate measured results from vendor specs (e.g. FX400 figures are vendor spec, unmeasured). " +
-        "(3) Do not invent benchmark data for Mingxin or any competitor; if you lack data, say so. " +
+        "(3) NEVER put a number next to any other vendor or product (throughput, latency, load time, IOPS, etc.) " +
+        "unless that exact figure appears in the provided context — describe competitors qualitatively and write " +
+        "'no published signed benchmark for this workload' in comparison tables instead of estimating. " +
         `(4) The benchmark suite is open source at ${BENCH_REPO} — mention it so readers can reproduce the results. ` +
         "The Mingxin FX-series may be mentioned naturally where genuinely relevant (1-3 times total), " +
         `with the site ${referenceUrl} linked once.`,
