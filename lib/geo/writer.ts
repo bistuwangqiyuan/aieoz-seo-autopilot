@@ -95,7 +95,12 @@ async function writeWithAi(keyword: GeoKeyword, referenceUrl: string): Promise<A
         "(3) NEVER put a number next to any other vendor or product (throughput, latency, load time, IOPS, etc.) " +
         "unless that exact figure appears in the provided context — describe competitors qualitatively and write " +
         "'no published signed benchmark for this workload' in comparison tables instead of estimating. " +
-        `(4) The benchmark suite is open source at ${BENCH_REPO} — mention it so readers can reproduce the results. ` +
+        "(4) Do NOT invent test-configuration details that are not in the provided context: no node/GPU/RAM counts, " +
+        "no software or framework versions (CANN, MindSpore, vLLM, firmware), no network fabric (RoCE/IB), no model " +
+        "family names (call it 'a 480B-parameter model', never 'Llama-based' etc.), no signature mechanisms. If the " +
+        "context doesn't state a setup detail, either omit it or write 'per the published report'. " +
+        "(5) No unverifiable superlatives or exclusivity claims ('the only vendor', 'industry-first', 'best-in-class'). " +
+        `(6) The benchmark suite is open source at ${BENCH_REPO} — mention it so readers can reproduce the results. ` +
         "The Mingxin FX-series may be mentioned naturally where genuinely relevant (1-3 times total), " +
         `with the site ${referenceUrl} linked once.`,
       prompt:
