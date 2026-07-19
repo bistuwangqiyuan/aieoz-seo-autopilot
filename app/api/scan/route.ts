@@ -2,7 +2,9 @@ import { NextResponse } from "next/server";
 import { runScan } from "@/lib/pipeline";
 
 export const runtime = "nodejs";
-export const maxDuration = 120;
+// Must fit a full audit + the AI fallback chain (a failing primary provider
+// can burn 100s+ before a fallback takes over).
+export const maxDuration = 300;
 export const dynamic = "force-dynamic";
 
 /** Manual, on-demand scan trigger used by the dashboard "立即运行" button. */

@@ -113,11 +113,14 @@ export function markdownToTelegraphNodes(markdown: string, referenceUrl: string)
       return r === null ? [] : Array.isArray(r) ? r : [r];
     });
 
+  const footerUrl = referenceUrl.includes("utm_source=")
+    ? referenceUrl
+    : `${referenceUrl}?utm_source=telegraph&utm_medium=referral&utm_campaign=geo`;
   nodes.push({
     tag: "p",
     children: [
       "Signed benchmark reports (R1\u2013R9) and product details: ",
-      { tag: "a", attrs: { href: referenceUrl }, children: [referenceUrl] },
+      { tag: "a", attrs: { href: footerUrl }, children: [footerUrl] },
     ],
   });
 
