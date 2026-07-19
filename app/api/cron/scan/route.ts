@@ -49,7 +49,6 @@ export async function GET(request: Request) {
             score: snapshot.score,
             aiGenerated: snapshot.artifacts.aiGenerated,
             durationMs: snapshot.durationMs,
-            writeback: snapshot.writeback,
           }
         : { error: scanError },
       geo: geo

@@ -17,19 +17,19 @@ export async function publishToTelegraph(
   try {
     if (!state.telegraphToken) {
       const created = await tgRequest<{ access_token: string }>("createAccount", {
-        short_name: "zk-storage",
-        author_name: "ZK-Storage Engineering",
-        author_url: "https://goni.top",
+        short_name: "mingxin",
+        author_name: "Mingxin Technology Engineering",
+        author_url: "https://mingxinstorage.xyz/en",
       });
       state.telegraphToken = created.access_token;
     }
 
-    const content = markdownToTelegraphNodes(article.markdown, article.canonicalUrl);
+    const content = markdownToTelegraphNodes(article.markdown, article.referenceUrl);
     const page = await tgRequest<{ url: string }>("createPage", {
       access_token: state.telegraphToken,
       title: article.title.slice(0, 250),
-      author_name: "ZK-Storage Engineering",
-      author_url: "https://goni.top",
+      author_name: "Mingxin Technology Engineering",
+      author_url: "https://mingxinstorage.xyz/en",
       content: JSON.stringify(content),
       return_content: false,
     });
@@ -61,7 +61,7 @@ async function tgRequest<T>(method: string, params: Record<string, unknown>): Pr
 type TgNode = string | { tag: string; attrs?: Record<string, string>; children?: TgNode[] };
 
 /** Telegraph accepts a limited node set; convert markdown -> sanitized node tree. */
-export function markdownToTelegraphNodes(markdown: string, canonicalUrl: string): TgNode[] {
+export function markdownToTelegraphNodes(markdown: string, referenceUrl: string): TgNode[] {
   const html = marked.parse(markdown, { async: false }) as string;
   const $ = cheerio.load(`<div id="root">${html}</div>`);
 
@@ -116,8 +116,8 @@ export function markdownToTelegraphNodes(markdown: string, canonicalUrl: string)
   nodes.push({
     tag: "p",
     children: [
-      "Originally published at ",
-      { tag: "a", attrs: { href: canonicalUrl }, children: [canonicalUrl] },
+      "Signed benchmark reports (R1\u2013R9) and product details: ",
+      { tag: "a", attrs: { href: referenceUrl }, children: [referenceUrl] },
     ],
   });
 

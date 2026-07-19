@@ -137,7 +137,7 @@ export function sanitizeGeoState(raw: Partial<GeoState> | null | undefined): Geo
       markdown: typeof a.markdown === "string" ? a.markdown : "",
       quoraAnswer: typeof a.quoraAnswer === "string" ? a.quoraAnswer : "",
       redditPost: typeof a.redditPost === "string" ? a.redditPost : "",
-      canonicalUrl: typeof a.canonicalUrl === "string" ? a.canonicalUrl : "",
+      referenceUrl: typeof a.referenceUrl === "string" ? a.referenceUrl : "",
       createdAt: typeof a.createdAt === "string" ? a.createdAt : now,
       aiGenerated: Boolean(a.aiGenerated),
       publishResults: arr<GeoState["articles"][number]["publishResults"][number]>(a.publishResults),

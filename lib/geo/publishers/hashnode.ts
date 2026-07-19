@@ -37,7 +37,6 @@ mutation PublishPost($input: PublishPostInput!) {
             title: article.title,
             contentMarkdown: article.markdown,
             tags: article.tags.slice(0, 5).map((t) => ({ slug: t, name: t })),
-            originalArticleURL: article.canonicalUrl,
             subtitle: article.description.slice(0, 250),
           },
         },

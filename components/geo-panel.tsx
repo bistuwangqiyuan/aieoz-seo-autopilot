@@ -4,7 +4,6 @@ import { RunGeoButton } from "@/components/run-geo-button";
 import { formatDateTime, timeAgo } from "@/lib/format";
 
 const PLATFORM_LABEL: Record<PublishResult["platform"], string> = {
-  blog: "goni.top 博客",
   devto: "Dev.to",
   hashnode: "Hashnode",
   telegraph: "Telegraph",
@@ -49,7 +48,7 @@ export function GeoPanel({ state }: { state: GeoState }) {
             GEO 生成式引擎优化 <span className="text-xs font-normal text-white/40">· 四步循环 · 每 4 小时</span>
           </h2>
           <p className="mt-1 text-xs text-white/50">
-            AI 挖词 → AI 写权威长文 → 多平台自动分发 → GA4 检测 Reddit / Perplexity / ChatGPT 引流信号
+            AI 挖词 → AI 写权威英文长文（实测数据带 R1–R9 报告编号）→ 站外多平台自动分发（回链官网 /en）→ GA4 检测 Reddit / Perplexity / ChatGPT 引流信号
           </p>
         </div>
         <RunGeoButton />
@@ -121,18 +120,26 @@ export function GeoPanel({ state }: { state: GeoState }) {
           <p className="text-xs text-white/40">暂无文章 — 首轮 GEO 循环后此处将展示发布记录</p>
         ) : (
           <ul className="space-y-2">
-            {recentArticles.map((a) => (
+            {recentArticles.map((a) => {
+              const firstPublished = a.publishResults.find((r) => r.status === "published" && r.url);
+              return (
               <li key={a.slug} className="rounded-xl border border-edge/50 bg-white/[0.02] p-3">
                 <div className="flex flex-wrap items-center justify-between gap-2">
-                  <a
-                    href={a.canonicalUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="min-w-0 truncate text-sm font-medium text-accent hover:underline"
-                    title={a.title}
-                  >
-                    {a.title}
-                  </a>
+                  {firstPublished?.url ? (
+                    <a
+                      href={firstPublished.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="min-w-0 truncate text-sm font-medium text-accent hover:underline"
+                      title={a.title}
+                    >
+                      {a.title}
+                    </a>
+                  ) : (
+                    <span className="min-w-0 truncate text-sm font-medium text-white/80" title={a.title}>
+                      {a.title}
+                    </span>
+                  )}
                   <span className="shrink-0 text-[11px] text-white/40">{formatDateTime(a.createdAt)}</span>
                 </div>
                 <p className="mt-0.5 text-[11px] text-white/45">关键词：{a.keyword}</p>
@@ -153,7 +160,8 @@ export function GeoPanel({ state }: { state: GeoState }) {
                   ))}
                 </div>
               </li>
-            ))}
+              );
+            })}
           </ul>
         )}
       </div>

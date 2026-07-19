@@ -1,8 +1,8 @@
 {
   "name": "aieoz-seo-autopilot",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "private": true,
-  "description": "Autonomous AI-driven SEO optimization platform for the 中科存储 (goni.top) official site.",
+  "description": "External autonomous SEO/GEO autopilot for the 铭信科技 Mingxin Technology official site (mingxinstorage.xyz): read-only independent audits with fix recommendations, plus off-site English GEO distribution.",
   "scripts": {
     "dev": "next dev",
     "build": "next build",

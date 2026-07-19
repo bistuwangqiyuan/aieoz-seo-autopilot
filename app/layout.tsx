@@ -2,9 +2,9 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "AI SEO Autopilot · 中科存储 (goni.top)",
+  title: "Mingxin SEO/GEO Autopilot · 铭信科技 (mingxinstorage.xyz)",
   description:
-    "全自动、无人值守的 AI SEO 优化平台：7×24 小时持续审计 goni.top，评分并生成可直接应用的优化产物。",
+    "铭信官网的外部独立 SEO/GEO 自动驾驶：7×24 小时从外部审计 mingxinstorage.xyz 并生成修复建议，同时面向海外英文市场自动挖词、写文、多平台分发。",
   robots: { index: false, follow: false },
 };
 

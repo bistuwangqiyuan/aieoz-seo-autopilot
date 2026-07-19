@@ -1,14 +1,13 @@
 import { auditTargets, collectGaps } from "@/lib/seo/audit";
 import { generateArtifacts } from "@/lib/ai/optimize";
-import { applyWriteback } from "@/lib/apply/writeback";
 import { saveSnapshot } from "@/lib/store/blob";
 import { getTargetUrls } from "@/lib/config";
 import type { Snapshot } from "@/lib/types";
 
 /**
- * Full autonomous pipeline: crawl -> audit/score -> AI optimize -> writeback -> persist.
- * The writeback step auto-commits the optimizations back to the source repo so the
- * next scan can verify the score gain (closed loop). Returns the produced snapshot.
+ * Full external-audit pipeline: crawl -> audit/score -> AI fix recommendations -> persist.
+ * The tool is a read-only independent auditor of the official site; fixes are
+ * applied by the site's own repo, and the next scan verifies the score gain.
  */
 export async function runScan(trigger: Snapshot["trigger"]): Promise<Snapshot> {
   const start = Date.now();
@@ -28,12 +27,6 @@ export async function runScan(trigger: Snapshot["trigger"]): Promise<Snapshot> {
     site,
     artifacts,
   };
-
-  try {
-    snapshot.writeback = await applyWriteback(snapshot);
-  } catch (err) {
-    console.error("[writeback] failed:", err);
-  }
 
   snapshot.durationMs = Date.now() - start;
   await saveSnapshot(snapshot);

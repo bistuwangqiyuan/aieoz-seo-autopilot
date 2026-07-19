@@ -77,18 +77,18 @@ function Header({ aiOn, model, storage }: { aiOn: boolean; model: string; storag
             </span>
           </div>
           <h1 className="text-3xl font-bold tracking-tight md:text-4xl">
-            全自动 <span className="bg-gradient-to-r from-brand-glow to-accent bg-clip-text text-transparent">AI SEO</span> 优化平台
+            铭信 <span className="bg-gradient-to-r from-brand-glow to-accent bg-clip-text text-transparent">SEO / GEO</span> 自动驾驶
           </h1>
           <p className="mt-2 max-w-2xl text-sm text-white/55 md:text-base">
-            面向 <span className="text-white/80">中科存储 · goni.top</span> 官网的无人值守 SEO + GEO 优化服务。
-            每 4 小时自动审计评分、写回优化、AI 挖词写文并多平台分发，全流程零人工参与。
+            面向 <span className="text-white/80">铭信科技 · mingxinstorage.xyz</span> 官网的外部独立审计与海外 GEO 分发。
+            每 4 小时自动审计评分并产出修复建议，AI 挖英文长尾词、写权威长文并多平台分发，全流程零人工参与。
           </p>
         </div>
         <RunNowButton />
       </div>
 
       <div className="mt-5 flex flex-wrap gap-2">
-        <Chip label="自动调度" value="每 4 小时 (Vercel Cron)" />
+        <Chip label="自动调度" value="每 4 小时 (GitHub Actions + Vercel Cron)" />
         <Chip label="下次运行" value={`约 ${nextRunLabel()}`} />
         <Chip label="AI 引擎" value={aiOn ? model : "未配置密钥 (启发式)"} tone={aiOn ? "ok" : "warn"} />
         <Chip label="存储" value={storage === "blob" ? "Vercel Blob" : "内存(本地)"} tone={storage === "blob" ? "ok" : "warn"} />
@@ -100,6 +100,7 @@ function Header({ aiOn, model, storage }: { aiOn: boolean; model: string; storag
 function Dashboard({ latest, history }: { latest: Snapshot; history: HistoryPoint[] }) {
   const tone = scoreTone(latest.score);
   const a = latest.artifacts;
+  const site = latest.site;
 
   return (
     <div className="space-y-6">
@@ -132,8 +133,32 @@ function Dashboard({ latest, history }: { latest: Snapshot; history: HistoryPoin
         <p className="mt-1 text-sm text-white/80">{a.summary}</p>
       </section>
 
-      {/* Writeback (closed-loop auto-commit) status */}
-      {latest.writeback && <WritebackPanel wb={latest.writeback} />}
+      {/* Site-level availability signals (external audit catches what self-audit can't) */}
+      <section className="glass rounded-2xl p-5">
+        <h2 className="mb-3 text-sm font-semibold text-white/80">站点级信号（外部实测）</h2>
+        <div className="grid gap-3 md:grid-cols-2">
+          <SiteSignalCard
+            ok={site.robotsTxt.present}
+            label="robots.txt"
+            detail={
+              site.robotsTxt.present
+                ? site.robotsTxt.hasSitemap
+                  ? "可访问，已声明 sitemap"
+                  : "可访问，但未声明 sitemap"
+                : "不可访问"
+            }
+          />
+          <SiteSignalCard
+            ok={site.sitemapXml.present}
+            label="sitemap.xml"
+            detail={
+              site.sitemapXml.present
+                ? `可访问 · ${site.sitemapXml.urlCount} 条 URL`
+                : "不可访问 — 官网 sitemap 为数据库动态生成，请优先检查官网 Vercel 项目的 DATABASE_URL / Neon 数据库"
+            }
+          />
+        </div>
+      </section>
 
       {/* Per-page breakdown */}
       <section className="grid gap-6 md:grid-cols-2">
@@ -160,10 +185,13 @@ function Dashboard({ latest, history }: { latest: Snapshot; history: HistoryPoin
         ))}
       </section>
 
-      {/* Optimization actions */}
+      {/* Fix recommendations */}
       {a.actions.length > 0 && (
         <section className="glass rounded-2xl p-5">
-          <h2 className="mb-4 text-sm font-semibold text-white/80">AI 优化行动清单</h2>
+          <h2 className="mb-1 text-sm font-semibold text-white/80">修复建议清单</h2>
+          <p className="mb-4 text-xs text-white/45">
+            官网为 Next.js 应用，修复在官网源码仓库落地；本工具作为外部审计方持续复测验证效果。
+          </p>
           <ol className="space-y-3">
             {a.actions.map((action, i) => (
               <li key={i} className="flex gap-3 rounded-xl border border-edge/50 bg-white/[0.02] p-3">
@@ -188,21 +216,20 @@ function Dashboard({ latest, history }: { latest: Snapshot; history: HistoryPoin
         </section>
       )}
 
-      {/* Ready-to-apply artifacts */}
+      {/* Ready-to-paste fix artifacts */}
       <section className="glass rounded-2xl p-5">
-        <h2 className="mb-1 text-sm font-semibold text-white/80">可直接应用的优化产物</h2>
+        <h2 className="mb-1 text-sm font-semibold text-white/80">可直接粘贴的修复代码</h2>
         <p className="mb-4 text-xs text-white/45">
-          以下产物由 AI 生成，可直接粘贴到 goni.top 对应页面的 <code className="text-white/60">&lt;head&gt;</code> 或站点根目录。
+          以下产物由 AI 生成，可粘贴到官网仓库对应页面的 <code className="text-white/60">metadata</code> 导出或{" "}
+          <code className="text-white/60">JsonLd</code> 组件中。
         </p>
         <div className="grid gap-4 lg:grid-cols-2">
           <div className="lg:col-span-2">
-            <CopyBlock title="优化后的 <head> 元数据 + JSON-LD" code={a.headHtml} language="html" />
+            <CopyBlock title="Next.js metadata 导出（主页面）" code={a.metadataSnippet} language="tsx" />
           </div>
           {a.jsonLd.map((ld, i) => (
             <CopyBlock key={i} title={`JSON-LD · ${ld.type}`} code={ld.json} language="json" />
           ))}
-          <CopyBlock title="sitemap.xml" code={a.sitemapXml} language="xml" />
-          <CopyBlock title="robots.txt" code={a.robotsTxt} language="txt" />
         </div>
 
         {a.faq.length > 0 && (
@@ -248,62 +275,15 @@ function Dashboard({ latest, history }: { latest: Snapshot; history: HistoryPoin
   );
 }
 
-function WritebackPanel({ wb }: { wb: NonNullable<Snapshot["writeback"]> }) {
-  const status = wb.error
-    ? { label: "失败", tone: "warn" as const }
-    : wb.applied
-      ? { label: "已自动提交", tone: "ok" as const }
-      : !wb.enabled
-        ? { label: "未启用", tone: "default" as const }
-        : wb.dryRun
-          ? { label: "演练 (Dry-run)", tone: "warn" as const }
-          : { label: "已收敛 (无需变更)", tone: "ok" as const };
-
+function SiteSignalCard({ ok, label, detail }: { ok: boolean; label: string; detail: string }) {
   return (
-    <section className="glass rounded-2xl p-5">
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-        <h2 className="text-sm font-semibold text-white/80">自动写回（闭环）</h2>
-        <div className="flex flex-wrap gap-2">
-          <Chip label="状态" value={status.label} tone={status.tone} />
-          <Chip label="仓库" value={wb.repo} />
-          <Chip label="分支" value={wb.branch} />
-        </div>
+    <div className={`rounded-xl border p-3 ${ok ? "border-ok/40 bg-ok/5" : "border-bad/40 bg-bad/5"}`}>
+      <div className="flex items-center gap-2">
+        <span className={`h-2.5 w-2.5 rounded-full ${ok ? "bg-ok" : "bg-bad"}`} />
+        <span className={`text-sm font-medium ${ok ? "text-ok" : "text-bad"}`}>{label}</span>
       </div>
-
-      {wb.commitUrl && (
-        <p className="text-xs text-white/60">
-          提交：{" "}
-          <a href={wb.commitUrl} target="_blank" rel="noreferrer" className="text-accent hover:underline">
-            {wb.commitSha?.slice(0, 7)}
-          </a>{" "}
-          → Netlify 将自动重建，下次扫描验证分数变化。
-        </p>
-      )}
-      {wb.skippedReason && !wb.commitUrl && (
-        <p className="text-xs text-white/50">{wb.skippedReason}</p>
-      )}
-      {wb.error && <p className="text-xs text-warn">错误：{wb.error}</p>}
-
-      {wb.changedFiles.length > 0 && (
-        <ul className="mt-3 space-y-2">
-          {wb.changedFiles.map((f) => (
-            <li key={f.path} className="rounded-xl border border-edge/50 bg-white/[0.02] p-3 text-xs">
-              <div className="font-medium text-white/80">{f.path}</div>
-              <div className="mt-0.5 text-white/50">{f.summary}</div>
-              {f.edits.length > 0 && (
-                <div className="mt-1 flex flex-wrap gap-1">
-                  {f.edits.map((e, i) => (
-                    <span key={i} className="rounded border border-edge px-1.5 py-0.5 text-[10px] text-white/55">
-                      {e}
-                    </span>
-                  ))}
-                </div>
-              )}
-            </li>
-          ))}
-        </ul>
-      )}
-    </section>
+      <p className="mt-1 text-xs text-white/55">{detail}</p>
+    </div>
   );
 }
 
@@ -316,7 +296,7 @@ function EmptyState({ targets }: { targets: string[] }) {
       <h2 className="text-lg font-semibold">尚未运行首次扫描</h2>
       <p className="mt-2 max-w-md text-sm text-white/55">
         平台会按计划每 4 小时自动运行。你也可以点击右上角「立即运行一次扫描」，
-        立刻对以下目标执行首次 AI SEO 审计：
+        立刻对以下目标执行首次外部 SEO 审计：
       </p>
       <ul className="mt-3 space-y-1 text-sm text-accent">
         {targets.map((t) => (
@@ -331,9 +311,9 @@ function Footer({ targets }: { targets: string[] }) {
   return (
     <footer className="mt-12 border-t border-edge/50 pt-6 text-center text-xs text-white/35">
       <p>
-        AI SEO Autopilot · 全自动无人值守 · 优化目标：{targets.map((t) => t.replace(/^https?:\/\//, "")).join(" / ")}
+        Mingxin SEO/GEO Autopilot · 外部独立审计 + 海外 GEO 分发 · 目标：{targets.map((t) => t.replace(/^https?:\/\//, "")).join(" / ")}
       </p>
-      <p className="mt-1">由 Vercel Cron + AI Gateway + Blob 驱动 · 所有运营均由 AI 自动完成</p>
+      <p className="mt-1">由 GitHub Actions + Vercel Cron + AI Gateway + Blob 驱动 · 所有运营均由 AI 自动完成</p>
     </footer>
   );
 }

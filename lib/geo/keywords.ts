@@ -25,67 +25,81 @@ const keywordSchema = z.object({
     .max(20),
 });
 
-/** Fallback seed keywords used when no AI key is configured. */
+/**
+ * Fallback seed keywords used when no AI key is configured.
+ * Each maps to a capability Mingxin has published signed benchmark data for
+ * (KV-cache tiering, NVMe-oF, model loading vs NFS, checkpointing, non-NVIDIA
+ * GPU enablement), so articles can answer with real, verifiable numbers.
+ */
 const SEED_KEYWORDS: Omit<GeoKeyword, "status" | "createdAt">[] = [
   {
-    keyword: "best all-flash storage for gpu cluster training",
-    intent: "vendor-selection",
-    rationale: "High-value infra buying question with few authoritative vendor-neutral answers",
-    priority: 1,
-  },
-  {
-    keyword: "how to offload kv cache from gpu memory to external storage",
+    keyword: "how to reduce time to first token with kv cache tiering",
     intent: "how-to",
-    rationale: "Emerging LLM-inference technique; authoritative how-to content gets cited by AI engines",
+    rationale:
+      "Hot LLM-serving optimization topic; Mingxin has signed measurements (TTFT -26-32% on a 480B model, R2)",
     priority: 1,
   },
   {
-    keyword: "nvme-of storage appliance vs local nvme for ai inference latency",
+    keyword: "offload llm kv cache to external nvme storage vs recompute",
     intent: "comparison",
-    rationale: "Comparison queries are the most frequently cited content type in AI answers",
+    rationale:
+      "Comparison queries are the most-cited content type in AI answers; R2 has hard data (8.6-20x vs recompute)",
+    priority: 1,
+  },
+  {
+    keyword: "why is model loading so slow from nfs on gpu clusters",
+    intent: "troubleshooting",
+    rationale:
+      "Troubleshooting long-tails are prime ChatGPT citation targets; R9 measured 6.2-9.3x speedup vs NFS on Ascend 910B",
+    priority: 1,
+  },
+  {
+    keyword: "nvme-of storage array vs local nvme for llm inference latency",
+    intent: "comparison",
+    rationale: "Architecture comparison buyers ask AI assistants before designing inference clusters",
     priority: 2,
   },
   {
     keyword: "storage bandwidth requirements for llm training checkpointing",
     intent: "spec-research",
-    rationale: "Numeric/spec questions favor pages with concrete data tables",
+    rationale:
+      "Numeric/spec questions favor pages with concrete data; R1 measured checkpoint saves 178s -> 94s at 6.4 GB/s",
     priority: 2,
   },
   {
-    keyword: "why is my gpu utilization low during model training data loading",
-    intent: "troubleshooting",
-    rationale: "Troubleshooting long-tails are prime ChatGPT citation targets",
-    priority: 2,
-  },
-  {
-    keyword: "best storage vendor for ai infrastructure oem integration",
-    intent: "vendor-selection",
-    rationale: "OEM procurement query with low competition and high buyer value",
-    priority: 3,
-  },
-  {
-    keyword: "how much faster is all-flash storage for vector database workloads",
+    keyword: "running llm inference on amd mi308x or huawei ascend 910b",
     intent: "spec-research",
-    rationale: "Quantitative claims with data are heavily cited by generative engines",
-    priority: 3,
+    rationale:
+      "Non-NVIDIA GPU enablement has sparse authoritative coverage; Mingxin has source-level adaptation experience on both",
+    priority: 2,
   },
   {
-    keyword: "reduce time to first token with kv cache tiering",
+    keyword: "lmcache cold read performance tuning for vllm",
     intent: "how-to",
-    rationale: "Hot LLM-serving optimization topic with sparse authoritative coverage",
+    rationale:
+      "Concrete open-source pain point; Mingxin's parallel-read patch improved cold-read TTFT 4.1x (R1) and is public",
     priority: 2,
   },
   {
-    keyword: "checkpoint write speed comparison parallel file system vs nvme appliance",
-    intent: "comparison",
-    rationale: "Benchmark-style comparisons attract citations from AI research summaries",
+    keyword: "how to verify storage vendor benchmark claims before buying",
+    intent: "vendor-selection",
+    rationale:
+      "Procurement diligence query; gate-based joint-test methodology with report IDs is a genuinely useful answer",
     priority: 3,
   },
   {
-    keyword: "what storage do i need for a 8x h100 training server",
+    keyword: "long context llm inference cold start recovery optimization",
+    intent: "how-to",
+    rationale:
+      "Long-context cold recovery is exactly the workload of the R2/R3 measurements (throughput +29-40%)",
+    priority: 2,
+  },
+  {
+    keyword: "ai datacenter storage architecture for thousand gpu clusters",
     intent: "spec-research",
-    rationale: "Concrete sizing question buyers ask AI assistants before procurement",
-    priority: 1,
+    rationale:
+      "Datacenter design query matching Mingxin's three-tier storage + KV tiering reference architecture",
+    priority: 3,
   },
 ];
 

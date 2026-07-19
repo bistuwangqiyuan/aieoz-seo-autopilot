@@ -14,8 +14,8 @@ const config: Config = {
         "panel-2": "#13132a",
         edge: "#23233f",
         brand: {
-          DEFAULT: "#6366f1",
-          glow: "#818cf8",
+          DEFAULT: "#0071e3",
+          glow: "#5aa9ff",
         },
         accent: "#22d3ee",
         ok: "#34d399",
@@ -37,7 +37,7 @@ const config: Config = {
         mono: ["ui-monospace", "SFMono-Regular", "Menlo", "Consolas", "monospace"],
       },
       boxShadow: {
-        glow: "0 0 40px -8px rgba(99,102,241,0.45)",
+        glow: "0 0 40px -8px rgba(0,113,227,0.45)",
       },
       keyframes: {
         pulseRing: {

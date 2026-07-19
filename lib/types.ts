@@ -70,14 +70,18 @@ export interface SiteSignals {
   sitemapXml: { present: boolean; urlCount: number };
 }
 
-/** AI-generated, ready-to-apply optimization output. */
+/**
+ * AI-generated audit deliverables: fix recommendations for the site team.
+ * The target site is a Next.js app, so fixes land in its source repo —
+ * this tool reports and recommends, it never writes to the site.
+ */
 export interface Artifacts {
   /** True when produced by the LLM; false when produced by the heuristic fallback. */
   aiGenerated: boolean;
   model: string | null;
   summary: string;
-  /** A ready-to-paste <head> block. */
-  headHtml: string;
+  /** Ready-to-paste Next.js `metadata` export snippet for the primary page. */
+  metadataSnippet: string;
   metaTitle: string;
   metaDescription: string;
   keywords: string[];
@@ -85,8 +89,6 @@ export interface Artifacts {
   faq: { question: string; answer: string }[];
   contentSuggestions: string[];
   altTextSuggestions: { context: string; alt: string }[];
-  sitemapXml: string;
-  robotsTxt: string;
   actions: OptimizationAction[];
 }
 
@@ -96,31 +98,6 @@ export interface OptimizationAction {
   category: string;
   impact: "high" | "medium" | "low";
   effort: "high" | "medium" | "low";
-}
-
-export interface WritebackChange {
-  /** Repo-relative file path. */
-  path: string;
-  /** Human-readable summary of what was changed in this file. */
-  summary: string;
-  /** Specific SEO checks/elements that were upserted. */
-  edits: string[];
-}
-
-/** Result of the auto-commit-to-source step. */
-export interface WritebackResult {
-  enabled: boolean;
-  dryRun: boolean;
-  /** True when a real commit was pushed. */
-  applied: boolean;
-  repo: string;
-  branch: string;
-  changedFiles: WritebackChange[];
-  commitSha?: string;
-  commitUrl?: string;
-  /** Set when the step was skipped (disabled, no diff, missing token, etc). */
-  skippedReason?: string;
-  error?: string;
 }
 
 export interface Snapshot {
@@ -133,8 +110,6 @@ export interface Snapshot {
   pages: PageAudit[];
   site: SiteSignals;
   artifacts: Artifacts;
-  /** Result of the optional auto-writeback step. */
-  writeback?: WritebackResult;
 }
 
 /** Compact representation used for the trend chart. */
@@ -166,7 +141,6 @@ export interface GeoKeyword {
 }
 
 export type PublishPlatform =
-  | "blog"
   | "devto"
   | "hashnode"
   | "telegraph"
@@ -197,8 +171,12 @@ export interface GeoArticle {
   quoraAnswer: string;
   /** Reddit post body (text post). */
   redditPost: string;
-  /** Canonical URL on goni.top once the blog page is committed. */
-  canonicalUrl: string;
+  /**
+   * Official-site link (EN landing page) every platform variant points to.
+   * Articles live only on the platforms themselves — nothing is written
+   * on-site, so there is no cross-platform canonical.
+   */
+  referenceUrl: string;
   createdAt: string;
   aiGenerated: boolean;
   publishResults: PublishResult[];

@@ -22,7 +22,6 @@ export async function publishToDevto(article: GeoArticle): Promise<PublishResult
           body_markdown: article.markdown,
           published: true,
           tags: article.tags.map((t) => t.replace(/-/g, "")).slice(0, 4),
-          canonical_url: article.canonicalUrl,
           description: article.description,
         },
       }),

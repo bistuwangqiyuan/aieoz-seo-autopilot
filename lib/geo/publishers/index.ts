@@ -1,31 +1,27 @@
 import type { GeoArticle, GeoDraft, GeoState, PublishResult } from "@/lib/types";
-import { publishToBlog } from "@/lib/geo/publishers/blog";
 import { publishToDevto } from "@/lib/geo/publishers/devto";
 import { publishToHashnode } from "@/lib/geo/publishers/hashnode";
 import { publishToTelegraph } from "@/lib/geo/publishers/telegraph";
 import { publishToReddit } from "@/lib/geo/publishers/reddit";
 
 /**
- * Step 3: distribute one article to every configured platform.
+ * Step 3: distribute one article to every configured off-site platform.
  * Each publisher is independent — failures/missing keys never block the others.
  * Also enqueues Medium/Quora ready-to-paste drafts into the state.
+ * Nothing is written to the official site itself; every variant links back to
+ * it (with per-platform UTM) instead.
  */
 export async function distributeArticle(
   article: GeoArticle,
   state: GeoState,
 ): Promise<PublishResult[]> {
-  const results: PublishResult[] = [];
-
-  // Blog first: it establishes the canonical URL every other platform points at.
-  results.push(await publishToBlog(article, state.articles));
-
   const [devto, hashnode, telegraph, reddit] = await Promise.all([
     publishToDevto(article),
     publishToHashnode(article),
     publishToTelegraph(article, state),
     publishToReddit(article),
   ]);
-  results.push(devto, hashnode, telegraph, reddit);
+  const results: PublishResult[] = [devto, hashnode, telegraph, reddit];
 
   state.draftQueue.push(...buildDrafts(article));
 
@@ -42,7 +38,7 @@ export function buildDrafts(article: GeoArticle): GeoDraft[] {
       title: article.title,
       content:
         `${article.markdown}\n\n---\n\n` +
-        `*Originally published at [${article.canonicalUrl}](${article.canonicalUrl}` +
+        `*Benchmark reports (R1–R9) and product details: [${article.referenceUrl}](${article.referenceUrl}` +
         `?utm_source=medium&utm_medium=referral&utm_campaign=geo).*`,
       createdAt: now,
     },
