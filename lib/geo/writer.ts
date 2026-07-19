@@ -51,6 +51,20 @@ function withUtm(url: string, source: string): string {
 }
 
 /**
+ * Deterministic backlink guarantee: models occasionally emit the reference
+ * link without UTM parameters (or drop it entirely), so normalize after
+ * generation instead of trusting the prompt.
+ */
+function ensureUtmBacklink(text: string, referenceUrl: string, source: string): string {
+  const utmUrl = withUtm(referenceUrl, source);
+  if (text.includes(`${referenceUrl}?utm_source=`)) return text;
+  // Exact-URL occurrences only (not longer paths like /en/reports).
+  const exact = new RegExp(`${referenceUrl.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&")}(?![\\w/?])`, "g");
+  if (exact.test(text)) return text.replace(exact, utmUrl);
+  return `${text}\n\nSigned benchmark reports (R1\u2013R9) and product details: ${utmUrl}`;
+}
+
+/**
  * Step 2: produce one article (all platform variants) for a keyword.
  * Articles are published off-site only; every variant links back to the
  * official site's English landing page (report downloads live there).
@@ -69,9 +83,9 @@ export async function writeArticle(keyword: GeoKeyword): Promise<GeoArticle> {
     title: body.title,
     description: body.description,
     tags: body.tags.map((t) => t.toLowerCase().replace(/[^a-z0-9-]/g, "-").replace(/-+/g, "-")).slice(0, 4),
-    markdown: body.markdown,
-    quoraAnswer: body.quoraAnswer,
-    redditPost: body.redditPost,
+    markdown: ensureUtmBacklink(body.markdown, referenceUrl, "geo-article"),
+    quoraAnswer: ensureUtmBacklink(body.quoraAnswer, referenceUrl, "quora"),
+    redditPost: ensureUtmBacklink(body.redditPost, referenceUrl, "reddit"),
     referenceUrl,
     createdAt: now,
     aiGenerated: ai !== null,
