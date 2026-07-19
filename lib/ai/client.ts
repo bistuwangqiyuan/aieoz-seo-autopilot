@@ -10,9 +10,10 @@ import { getModelId } from "@/lib/config";
  *
  *   1. Vercel AI Gateway (AI_MODEL, default openai/gpt-4o-mini)
  *   2. DeepSeek deepseek-chat        (DEEPSEEK_API_KEY)
- *   3. Tongyi/DashScope qwen-max     (TONGYI_API_KEY)
- *   4. Moonshot kimi-k3              (MOONSHOT_API_KEY)
- *   5. Zhipu GLM glm-4-flash         (GLM_API_KEY)
+ *   3. Tongyi/DashScope qwen-plus    (TONGYI_API_KEY — plus, not max: max
+ *                                     times out on large JSON artifacts)
+ *   4. Zhipu GLM glm-4-flash         (GLM_API_KEY)
+ *   5. Moonshot kimi-k3              (MOONSHOT_API_KEY, slowest — last)
  *
  * The gateway supports native structured outputs; the OpenAI-compatible
  * fallbacks don't reliably (their json_object mode ignores the schema), so
@@ -59,25 +60,13 @@ export function getProviderChain(): Provider[] {
   }
   if (env("TONGYI_API_KEY")) {
     chain.push({
-      id: "tongyi/qwen-max",
+      id: "tongyi/qwen-plus",
       kind: "compat",
       model: compat({
         name: "tongyi",
         baseURL: "https://dashscope.aliyuncs.com/compatible-mode/v1",
         apiKey: env("TONGYI_API_KEY"),
-        model: "qwen-max",
-      }),
-    });
-  }
-  if (env("MOONSHOT_API_KEY")) {
-    chain.push({
-      id: "moonshot/kimi-k3",
-      kind: "compat",
-      model: compat({
-        name: "moonshot",
-        baseURL: "https://api.moonshot.cn/v1",
-        apiKey: env("MOONSHOT_API_KEY"),
-        model: "kimi-k3",
+        model: "qwen-plus",
       }),
     });
   }
@@ -90,6 +79,18 @@ export function getProviderChain(): Provider[] {
         baseURL: "https://open.bigmodel.cn/api/paas/v4",
         apiKey: env("GLM_API_KEY"),
         model: "glm-4-flash",
+      }),
+    });
+  }
+  if (env("MOONSHOT_API_KEY")) {
+    chain.push({
+      id: "moonshot/kimi-k3",
+      kind: "compat",
+      model: compat({
+        name: "moonshot",
+        baseURL: "https://api.moonshot.cn/v1",
+        apiKey: env("MOONSHOT_API_KEY"),
+        model: "kimi-k3",
       }),
     });
   }
@@ -127,20 +128,50 @@ interface GenerateOpts<SCHEMA extends z.ZodTypeAny> {
   prompt: string;
 }
 
+/** Per-attempt budget so one slow/thinking model can't blow the serverless time limit. */
+const COMPAT_TIMEOUT_MS = 100_000;
+
 async function generateViaCompat<SCHEMA extends z.ZodTypeAny>(
   model: LanguageModel,
   opts: GenerateOpts<SCHEMA>,
 ): Promise<z.infer<SCHEMA>> {
   const schemaJson = JSON.stringify(zodSchema(opts.schema).jsonSchema);
+  const basePrompt =
+    `${opts.prompt}\n\n` +
+    `OUTPUT FORMAT (mandatory): respond with ONLY a single JSON object — no markdown fences, ` +
+    `no commentary — that strictly conforms to this JSON Schema (respect every minItems/maxItems/` +
+    `minLength/maxLength constraint exactly):\n${schemaJson}`;
+
   const { text } = await generateText({
     model,
     system: opts.system,
-    prompt:
-      `${opts.prompt}\n\n` +
-      `OUTPUT FORMAT (mandatory): respond with ONLY a single JSON object — no markdown fences, ` +
-      `no commentary — that strictly conforms to this JSON Schema:\n${schemaJson}`,
+    prompt: basePrompt,
+    // Large enough for the biggest artifact JSON, small enough to be accepted
+    // by every provider in the chain (GLM caps output at ~4k tokens).
+    maxOutputTokens: 4000,
+    abortSignal: AbortSignal.timeout(COMPAT_TIMEOUT_MS),
   });
-  return opts.schema.parse(JSON.parse(extractJson(text)));
+  const raw = extractJson(text);
+  let problem: string;
+  try {
+    const first = opts.schema.safeParse(JSON.parse(raw));
+    if (first.success) return first.data;
+    problem = `It FAILED schema validation with these errors:\n${JSON.stringify(first.error.issues.slice(0, 5))}`;
+  } catch (err) {
+    problem = `It is NOT valid JSON (${err instanceof Error ? err.message : String(err)}). Output complete, parseable JSON.`;
+  }
+
+  // One repair round-trip: near-misses (one array item over maxItems,
+  // truncated output, …) are common with these models and cheap to fix
+  // with explicit feedback.
+  const { text: repaired } = await generateText({
+    model,
+    system: opts.system,
+    prompt: `${basePrompt}\n\nYour previous response was:\n${raw.slice(0, 8000)}\n\n${problem}\n\nReturn the corrected JSON object only.`,
+    maxOutputTokens: 4000,
+    abortSignal: AbortSignal.timeout(COMPAT_TIMEOUT_MS),
+  });
+  return opts.schema.parse(JSON.parse(extractJson(repaired)));
 }
 
 /**
