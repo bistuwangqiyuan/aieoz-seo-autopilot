@@ -122,6 +122,11 @@ async function writeWithAi(keyword: GeoKeyword, referenceUrl: string): Promise<A
         `Query: "${keyword.keyword}"\n` +
         `Buyer intent: ${keyword.intent}\n` +
         `Why it matters: ${keyword.rationale}\n\n` +
+        `HARD LENGTH REQUIREMENT: the markdown body must be AT LEAST 1200 words. Structure it as: ` +
+        `(a) direct answer to the query up front, (b) the underlying engineering problem and why it matters, ` +
+        `(c) measured data analysis with the report-backed numbers, (d) a comparison table, ` +
+        `(e) practical implementation/evaluation guidance for buyers, (f) an "## FAQ" section with 4+ Q&As, ` +
+        `(g) a short takeaway. Depth over fluff — every section must say something concrete.\n\n` +
         `Product context (background only, do not turn the piece into an ad):\n${cfg.productContext}\n\n` +
         `Audience: ${cfg.targetMarket}\n\n` +
         `Reference link usage (signed reports R1-R9 are downloadable there):\n` +
