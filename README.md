@@ -72,7 +72,8 @@ cp .env.example .env.local   # 填入密钥（无密钥也可运行，自动降�
 npm run dev                  # http://localhost:3000
 ```
 
-优雅降级策略：未配置 `AI_GATEWAY_API_KEY` → 启发式内容（仅含带报告编号的真实数据）；
+优雅降级策略：AI 引擎按 Gateway → DeepSeek → 通义 qwen-max → Moonshot kimi-k3 → GLM-4-flash
+逐级自动切换（任一密钥可用即走 AI，全部失败才降级）；完全无 AI 密钥 → 启发式内容（仅含带报告编号的真实数据）；
 持久化按 `DATABASE_URL`（Neon Postgres）→ `BLOB_READ_WRITE_TOKEN`（Vercel Blob）→ 内存（仅本地）三级降级；
 未配置平台密钥 → 对应平台自动跳过（Telegraph 零配置可用）；未配置 GA4 → 信号面板显示等待凭据，其余照常。
 
@@ -82,8 +83,9 @@ npm run dev                  # http://localhost:3000
 
 | 变量 | 说明 |
 | --- | --- |
-| `AI_GATEWAY_API_KEY` | Vercel AI Gateway 密钥（AI 修复建议 + GEO 挖词写文） |
+| `AI_GATEWAY_API_KEY` | Vercel AI Gateway 密钥（主 AI 引擎：修复建议 + GEO 挖词写文） |
 | `AI_MODEL` | 通过 Gateway 调用的模型，默认 `openai/gpt-4o-mini` |
+| `DEEPSEEK_API_KEY` / `TONGYI_API_KEY` / `MOONSHOT_API_KEY` / `GLM_API_KEY` | 备用 AI 引擎（按此顺序自动 fallback，任意子集即可；全部 OpenAI 兼容） |
 | `DATABASE_URL` | Neon Postgres 连接串（首选持久化，自动建 `autopilot_kv` 表） |
 | `BLOB_READ_WRITE_TOKEN` | Vercel Blob（备用持久化） |
 | `CRON_SECRET` | 保护 `/api/cron/scan`（GitHub Actions 侧配同名 secret） |

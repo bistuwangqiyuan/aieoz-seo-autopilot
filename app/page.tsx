@@ -1,5 +1,6 @@
 import { getGeoState, getLatest, listHistory, storageMode } from "@/lib/store/blob";
-import { getModelId, getTargetUrls, hasAiKey } from "@/lib/config";
+import { getTargetUrls, hasAiKey } from "@/lib/config";
+import { describeProviderChain } from "@/lib/ai/client";
 import { ScoreGauge } from "@/components/score-gauge";
 import { TrendChart } from "@/components/trend-chart";
 import { CategoryBreakdown } from "@/components/category-breakdown";
@@ -45,7 +46,7 @@ export default async function DashboardPage() {
 
   return (
     <main className="mx-auto max-w-6xl px-4 py-8 md:px-6 md:py-12">
-      <Header aiOn={aiOn} model={getModelId()} storage={storageMode()} />
+      <Header aiOn={aiOn} model={describeProviderChain()} storage={storageMode()} />
 
       {latest ? (
         <Dashboard latest={latest} history={history} />

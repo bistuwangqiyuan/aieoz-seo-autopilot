@@ -41,8 +41,16 @@ export function getModelId(): string {
   return process.env.AI_MODEL?.trim() || "openai/gpt-4o-mini";
 }
 
+/**
+ * True when at least one AI provider is configured. The primary engine is the
+ * Vercel AI Gateway; DeepSeek / Tongyi / Moonshot / GLM keys act as automatic
+ * fallbacks (see lib/ai/client.ts) so the unattended loop survives a single
+ * vendor outage or exhausted quota.
+ */
 export function hasAiKey(): boolean {
-  return Boolean(process.env.AI_GATEWAY_API_KEY?.trim());
+  return ["AI_GATEWAY_API_KEY", "DEEPSEEK_API_KEY", "TONGYI_API_KEY", "MOONSHOT_API_KEY", "GLM_API_KEY"].some(
+    (name) => Boolean(process.env[name]?.trim()),
+  );
 }
 
 export const USER_AGENT =

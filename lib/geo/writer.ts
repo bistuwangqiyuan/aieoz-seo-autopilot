@@ -1,6 +1,6 @@
-import { generateObject } from "ai";
 import { z } from "zod";
-import { getGeoConfig, getModelId, getReferenceUrl, hasAiKey } from "@/lib/config";
+import { getGeoConfig, getReferenceUrl, hasAiKey } from "@/lib/config";
+import { generateObjectWithFallback } from "@/lib/ai/client";
 import type { GeoArticle, GeoKeyword } from "@/lib/types";
 
 const BENCH_REPO = "https://github.com/mingxin-tech/mingxin-kvcache-bench";
@@ -82,8 +82,7 @@ export async function writeArticle(keyword: GeoKeyword): Promise<GeoArticle> {
 async function writeWithAi(keyword: GeoKeyword, referenceUrl: string): Promise<AiArticle | null> {
   const cfg = getGeoConfig();
   try {
-    const { object } = await generateObject({
-      model: getModelId(),
+    const { object } = await generateObjectWithFallback({
       schema: articleSchema,
       system:
         "You are a senior AI-infrastructure practitioner writing authoritative technical content that " +

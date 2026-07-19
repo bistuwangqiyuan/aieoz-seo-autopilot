@@ -1,6 +1,6 @@
-import { generateObject } from "ai";
 import { z } from "zod";
-import { getGeoConfig, getModelId, hasAiKey } from "@/lib/config";
+import { getGeoConfig, hasAiKey } from "@/lib/config";
+import { generateObjectWithFallback } from "@/lib/ai/client";
 import type { GeoKeyword, GeoState } from "@/lib/types";
 
 const keywordSchema = z.object({
@@ -153,8 +153,7 @@ async function mineWithAi(
   const existingList = [...existing].slice(-60).join("\n- ");
 
   try {
-    const { object } = await generateObject({
-      model: getModelId(),
+    const { object } = await generateObjectWithFallback({
       schema: keywordSchema,
       system:
         "You are a GEO (Generative Engine Optimization) strategist. Your job is to mine long-tail English " +

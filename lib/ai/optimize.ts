@@ -1,7 +1,7 @@
-import { generateObject } from "ai";
 import { z } from "zod";
 import type { Artifacts, PageAudit, SiteSignals } from "@/lib/types";
-import { getModelId, getTargetOrigin, getTargetUrls, hasAiKey } from "@/lib/config";
+import { getTargetOrigin, getTargetUrls, hasAiKey } from "@/lib/config";
+import { generateObjectWithFallback } from "@/lib/ai/client";
 
 const artifactSchema = z.object({
   summary: z.string().describe("一句话中文总结当前 SEO 状况与本轮最需要修复的问题"),
@@ -66,11 +66,9 @@ async function generateWithAi(
   site: SiteSignals,
   gaps: string[],
 ): Promise<Artifacts> {
-  const model = getModelId();
   const context = buildContext(pages, site, gaps);
 
-  const { object } = await generateObject({
-    model,
+  const { object, model } = await generateObjectWithFallback({
     schema: artifactSchema,
     system:
       "你是一名顶尖的技术 SEO 专家，作为外部独立审计方服务『铭信科技（Mingxin Technology）』官网 " +
