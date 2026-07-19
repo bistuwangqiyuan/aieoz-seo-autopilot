@@ -1,3 +1,4 @@
+import { neon } from "@neondatabase/serverless";
 import { list, put } from "@vercel/blob";
 import type { GeoState, HistoryPoint, Snapshot } from "@/lib/types";
 
@@ -7,19 +8,80 @@ const SNAPSHOT_PREFIX = "seo/snapshots/";
 const GEO_STATE_KEY = "geo/state.json";
 const MAX_HISTORY = 720; // ~30 days of hourly runs
 
+/**
+ * Persistence backends, in priority order:
+ *   1. Neon Postgres (DATABASE_URL) — key/value JSONB table `autopilot_kv`
+ *   2. Vercel Blob (BLOB_READ_WRITE_TOKEN)
+ *   3. In-memory (local dev without credentials)
+ * Postgres is preferred because the project's Blob store can be suspended by
+ * account usage limits, which would silently kill the whole loop.
+ */
+function pgUrl(): string | null {
+  const raw = process.env.DATABASE_URL?.trim();
+  // Guard against placeholder values (e.g. `vercel env pull` masks secrets).
+  return raw && raw.startsWith("postgres") ? raw : null;
+}
+
 function hasBlob(): boolean {
   return Boolean(process.env.BLOB_READ_WRITE_TOKEN?.trim());
 }
 
-/* ---- In-memory fallback for local dev without a Blob token ---- */
+export function storageMode(): "postgres" | "blob" | "memory" {
+  if (pgUrl()) return "postgres";
+  if (hasBlob()) return "blob";
+  return "memory";
+}
+
+/* ---- In-memory fallback for local dev without credentials ---- */
 const mem: { latest: Snapshot | null; history: HistoryPoint[]; geo: GeoState | null } = {
   latest: null,
   history: [],
   geo: null,
 };
 
-async function readJson<T>(key: string): Promise<T | null> {
-  if (!hasBlob()) return null;
+/* ---- Postgres KV backend ---- */
+
+let tableReady: Promise<void> | null = null;
+
+function sql() {
+  return neon(pgUrl()!);
+}
+
+function ensureTable(): Promise<void> {
+  if (!tableReady) {
+    tableReady = sql()`
+      CREATE TABLE IF NOT EXISTS autopilot_kv (
+        key text PRIMARY KEY,
+        value jsonb NOT NULL,
+        updated_at timestamptz NOT NULL DEFAULT now()
+      )
+    `.then(() => undefined);
+  }
+  return tableReady;
+}
+
+async function pgRead<T>(key: string): Promise<T | null> {
+  try {
+    await ensureTable();
+    const rows = await sql()`SELECT value FROM autopilot_kv WHERE key = ${key}`;
+    return rows.length ? (rows[0].value as T) : null;
+  } catch (err) {
+    console.error(`[store/pg] read ${key} failed:`, err);
+    return null;
+  }
+}
+
+async function pgWrite(key: string, data: unknown): Promise<void> {
+  await ensureTable();
+  await sql()`
+    INSERT INTO autopilot_kv (key, value) VALUES (${key}, ${JSON.stringify(data)}::jsonb)
+    ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()
+  `;
+}
+
+/* ---- Vercel Blob backend ---- */
+
+async function blobRead<T>(key: string): Promise<T | null> {
   try {
     const { blobs } = await list({ prefix: key, limit: 1 });
     const blob = blobs.find((b) => b.pathname === key) ?? blobs[0];
@@ -28,13 +90,12 @@ async function readJson<T>(key: string): Promise<T | null> {
     if (!res.ok) return null;
     return (await res.json()) as T;
   } catch (err) {
-    console.error(`[blob] read ${key} failed:`, err);
+    console.error(`[store/blob] read ${key} failed:`, err);
     return null;
   }
 }
 
-async function writeJson(key: string, data: unknown): Promise<void> {
-  if (!hasBlob()) return;
+async function blobWrite(key: string, data: unknown): Promise<void> {
   await put(key, JSON.stringify(data), {
     access: "public",
     contentType: "application/json",
@@ -44,6 +105,23 @@ async function writeJson(key: string, data: unknown): Promise<void> {
   });
 }
 
+/* ---- Unified KV ---- */
+
+async function readJson<T>(key: string): Promise<T | null> {
+  const mode = storageMode();
+  if (mode === "postgres") return pgRead<T>(key);
+  if (mode === "blob") return blobRead<T>(key);
+  return null;
+}
+
+async function writeJson(key: string, data: unknown): Promise<void> {
+  const mode = storageMode();
+  if (mode === "postgres") return pgWrite(key, data);
+  if (mode === "blob") return blobWrite(key, data);
+}
+
+/* ==================== SEO snapshots ==================== */
+
 export async function saveSnapshot(snapshot: Snapshot): Promise<void> {
   const point: HistoryPoint = {
     id: snapshot.id,
@@ -52,7 +130,7 @@ export async function saveSnapshot(snapshot: Snapshot): Promise<void> {
     trigger: snapshot.trigger,
   };
 
-  if (!hasBlob()) {
+  if (storageMode() === "memory") {
     mem.latest = snapshot;
     mem.history = [...mem.history, point].slice(-MAX_HISTORY);
     return;
@@ -69,17 +147,13 @@ export async function saveSnapshot(snapshot: Snapshot): Promise<void> {
 }
 
 export async function getLatest(): Promise<Snapshot | null> {
-  if (!hasBlob()) return mem.latest;
+  if (storageMode() === "memory") return mem.latest;
   return readJson<Snapshot>(LATEST_KEY);
 }
 
 export async function listHistory(): Promise<HistoryPoint[]> {
-  if (!hasBlob()) return mem.history;
+  if (storageMode() === "memory") return mem.history;
   return (await readJson<HistoryPoint[]>(HISTORY_KEY)) ?? [];
-}
-
-export function storageMode(): "blob" | "memory" {
-  return hasBlob() ? "blob" : "memory";
 }
 
 /* ==================== GEO state ==================== */
@@ -101,13 +175,13 @@ const MAX_GEO_SIGNAL_CHECKS = 180; // ~30 days at 6 checks/day
 const MAX_GEO_CYCLES = 180;
 
 export async function getGeoState(): Promise<GeoState> {
-  const raw = hasBlob() ? await readJson<Partial<GeoState>>(GEO_STATE_KEY) : mem.geo;
+  const raw = storageMode() === "memory" ? mem.geo : await readJson<Partial<GeoState>>(GEO_STATE_KEY);
   return sanitizeGeoState(raw);
 }
 
 /**
- * Normalize a stored state so legacy/partial/corrupt blobs can never crash the
- * pipeline: every collection exists and every item carries required fields.
+ * Normalize a stored state so legacy/partial/corrupt records can never crash
+ * the pipeline: every collection exists and every item carries required fields.
  */
 export function sanitizeGeoState(raw: Partial<GeoState> | null | undefined): GeoState {
   const empty = emptyGeoState();
@@ -175,7 +249,7 @@ export async function saveGeoState(state: GeoState): Promise<void> {
     signalHistory: state.signalHistory.slice(-MAX_GEO_SIGNAL_CHECKS),
     cycles: state.cycles.slice(-MAX_GEO_CYCLES),
   };
-  if (!hasBlob()) {
+  if (storageMode() === "memory") {
     mem.geo = trimmed;
     return;
   }

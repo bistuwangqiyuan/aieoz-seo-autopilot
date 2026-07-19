@@ -59,7 +59,8 @@ Dashboard 手动按钮 ──► /api/scan /api/geo ────┴── GEO: m
 
 - **Next.js 15**（App Router, TypeScript）+ Tailwind CSS
 - **Vercel AI SDK 5** + **AI Gateway**（`generateObject` + zod 结构化输出）
-- **cheerio**（HTML 解析）、**marked**（Markdown 渲染）、**@vercel/blob**（持久化）、**recharts**（趋势图）
+- **持久化三级降级**：Neon Postgres（`DATABASE_URL`，JSONB KV 表 `autopilot_kv`）→ Vercel Blob → 内存（本地）
+- **cheerio**（HTML 解析）、**marked**（Markdown 渲染）、**recharts**（趋势图）
 - **GA4 Data API**（服务账号 RS256 JWT，无重依赖，可选）
 - **GitHub Actions**（每 4 小时）+ **Vercel Cron**（每日兜底）调度，`CRON_SECRET` 鉴权
 
@@ -72,7 +73,7 @@ npm run dev                  # http://localhost:3000
 ```
 
 优雅降级策略：未配置 `AI_GATEWAY_API_KEY` → 启发式内容（仅含带报告编号的真实数据）；
-未配置 `BLOB_READ_WRITE_TOKEN` → 内存存储（仅本地）；
+持久化按 `DATABASE_URL`（Neon Postgres）→ `BLOB_READ_WRITE_TOKEN`（Vercel Blob）→ 内存（仅本地）三级降级；
 未配置平台密钥 → 对应平台自动跳过（Telegraph 零配置可用）；未配置 GA4 → 信号面板显示等待凭据，其余照常。
 
 ## 环境变量
@@ -83,7 +84,8 @@ npm run dev                  # http://localhost:3000
 | --- | --- |
 | `AI_GATEWAY_API_KEY` | Vercel AI Gateway 密钥（AI 修复建议 + GEO 挖词写文） |
 | `AI_MODEL` | 通过 Gateway 调用的模型，默认 `openai/gpt-4o-mini` |
-| `BLOB_READ_WRITE_TOKEN` | 在 Vercel 创建 Blob 存储后自动注入 |
+| `DATABASE_URL` | Neon Postgres 连接串（首选持久化，自动建 `autopilot_kv` 表） |
+| `BLOB_READ_WRITE_TOKEN` | Vercel Blob（备用持久化） |
 | `CRON_SECRET` | 保护 `/api/cron/scan`（GitHub Actions 侧配同名 secret） |
 | `TARGET_URLS` / `TARGET_ORIGIN` | 审计目标页面 / 根域（默认铭信官网核心 6 页） |
 
@@ -104,9 +106,9 @@ Telegraph 零配置自动发布（匿名 API，token 自动创建并保存）。
 
 ```bash
 git push                                     # 推送后 Vercel 自动部署（已关联仓库）
-vercel blob store add mingxin-seo-autopilot  # 创建 Blob 存储（如未创建）
 vercel env add AI_GATEWAY_API_KEY
 vercel env add CRON_SECRET
+# 持久化：项目已挂 Neon 集成（DATABASE_URL 自动注入）；无 Neon 时可用 Blob
 # 按需添加 DEVTO_API_KEY / HASHNODE_* / REDDIT_* / GA4_* 等
 vercel --prod
 ```

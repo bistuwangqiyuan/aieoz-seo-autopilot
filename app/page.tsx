@@ -62,7 +62,7 @@ export default async function DashboardPage() {
   );
 }
 
-function Header({ aiOn, model, storage }: { aiOn: boolean; model: string; storage: "blob" | "memory" }) {
+function Header({ aiOn, model, storage }: { aiOn: boolean; model: string; storage: "postgres" | "blob" | "memory" }) {
   return (
     <header className="mb-8">
       <div className="flex flex-wrap items-start justify-between gap-4">
@@ -91,7 +91,11 @@ function Header({ aiOn, model, storage }: { aiOn: boolean; model: string; storag
         <Chip label="自动调度" value="每 4 小时 (GitHub Actions + Vercel Cron)" />
         <Chip label="下次运行" value={`约 ${nextRunLabel()}`} />
         <Chip label="AI 引擎" value={aiOn ? model : "未配置密钥 (启发式)"} tone={aiOn ? "ok" : "warn"} />
-        <Chip label="存储" value={storage === "blob" ? "Vercel Blob" : "内存(本地)"} tone={storage === "blob" ? "ok" : "warn"} />
+        <Chip
+          label="存储"
+          value={storage === "postgres" ? "Neon Postgres" : storage === "blob" ? "Vercel Blob" : "内存(本地)"}
+          tone={storage === "memory" ? "warn" : "ok"}
+        />
       </div>
     </header>
   );
