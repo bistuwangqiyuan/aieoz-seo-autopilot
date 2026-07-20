@@ -15,7 +15,8 @@ export default function RootLayout({
 }) {
   return (
     <html lang="zh-CN">
-      <body className="min-h-screen font-sans antialiased">{children}</body>
+      <body className="min-h-screen font-sans antialiased">{children}  <script defer src="/_vercel/insights/script.js"></script>
+</body>
     </html>
   );
 }
