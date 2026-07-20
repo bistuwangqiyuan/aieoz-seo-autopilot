@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
+import { runWithRecovery } from "@/components/long-run";
 
 export function RunGeoButton() {
   const router = useRouter();
@@ -13,9 +14,7 @@ export function RunGeoButton() {
     setRunning(true);
     setError(null);
     try {
-      const res = await fetch("/api/geo", { method: "POST" });
-      const data = await res.json();
-      if (!res.ok || !data.ok) throw new Error(data.error ?? "GEO 运行失败");
+      await runWithRecovery("/api/geo", (before, now) => now.geoCycles > before.geoCycles);
       startTransition(() => router.refresh());
     } catch (err) {
       setError(err instanceof Error ? err.message : "GEO 运行失败");

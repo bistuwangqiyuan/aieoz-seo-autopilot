@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
+import { runWithRecovery } from "@/components/long-run";
 
 export function RunNowButton() {
   const router = useRouter();
@@ -13,9 +14,7 @@ export function RunNowButton() {
     setRunning(true);
     setError(null);
     try {
-      const res = await fetch("/api/scan", { method: "POST" });
-      const data = await res.json();
-      if (!res.ok || !data.ok) throw new Error(data.error ?? "扫描失败");
+      await runWithRecovery("/api/scan", (before, now) => now.latestSnapshotId !== before.latestSnapshotId);
       startTransition(() => router.refresh());
     } catch (err) {
       setError(err instanceof Error ? err.message : "扫描失败");
