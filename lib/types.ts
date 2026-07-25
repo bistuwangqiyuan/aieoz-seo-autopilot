@@ -88,6 +88,17 @@ export interface CrossPageAudit {
   hreflangIssues: { url: string; detail: string }[];
   /** Pages whose canonical does not point at themselves. */
   canonicalIssues: { url: string; canonical: string | null }[];
+  /**
+   * The same two faults accumulated across runs, per URL. The lists above cover
+   * only this run's rotation slice, so on their own they make a standing problem
+   * elsewhere on the site look fixed the moment the rotation moves past it.
+   */
+  standing?: {
+    hreflang: { url: string; detail: string }[];
+    canonical: { url: string; canonical: string | null }[];
+    hreflangTotal: number;
+    canonicalTotal: number;
+  };
 }
 
 /* ==================== Official-site page map ==================== */

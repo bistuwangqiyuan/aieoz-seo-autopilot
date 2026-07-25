@@ -57,7 +57,8 @@ check(4, "rotation reaches full sweep in 7 days",
   Boolean(cov) && cov.sitemapUrls <= 7 * 6 * (d.scan.auditedThisRun ?? 0),
   `${d.scan.auditedThisRun}/run x 6 runs/day`);
 check(4, "cross-page checks ran", cov !== null,
-  cov ? `canonical ${cov.canonicalIssues}, hreflang ${cov.hreflangIssues}, dead ${cov.deadSitemapUrls}` : "");
+  cov ? `standing: canonical ${cov.canonicalIssues}, hreflang ${cov.hreflangIssues}` +
+    ` (this run: ${cov.canonicalIssuesThisRun}/${cov.hreflangIssuesThisRun}), dead ${cov.deadSitemapUrls}` : "");
 
 // Phase 5 — Dev.to. Without the key the publisher must skip cleanly, never fail.
 const devtoResults = arts.flatMap((a) => a.published.filter((p) => p.platform === "devto"));
@@ -69,6 +70,9 @@ check(6, "integrity sweep has run", Boolean(d.effect.integrity.lastSweep),
   d.effect.integrity.lastSweep ? JSON.stringify(d.effect.integrity.lastSweep) : "no sweep yet");
 check(6, "no article left flagged", d.effect.integrity.articlesFlagged === 0,
   `${d.effect.integrity.articlesFlagged} flagged of ${d.effect.integrity.articlesChecked} checked`);
+// A rule added but never applied to the existing corpus protects nothing.
+check(6, "whole corpus cleared against current rules", d.effect.integrity.staleForRules === 0,
+  `${d.effect.integrity.staleForRules} awaiting recheck under rules ${d.effect.integrity.rulesVersion}`);
 
 let failed = 0;
 let phase = 0;

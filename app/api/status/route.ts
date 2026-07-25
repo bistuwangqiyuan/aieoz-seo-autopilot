@@ -77,8 +77,14 @@ export async function GET(request: Request) {
           sitemapUrls: cross.sitemapUrls,
           everAudited: cross.auditedUrls,
           percent: cross.sitemapUrls > 0 ? Math.round((cross.auditedUrls / cross.sitemapUrls) * 100) : 0,
-          canonicalIssues: cross.canonicalIssues.length,
-          hreflangIssues: cross.hreflangIssues.length,
+          // Scoped to the pages this run audited.
+          canonicalIssuesThisRun: cross.canonicalIssues.length,
+          hreflangIssuesThisRun: cross.hreflangIssues.length,
+          // Site-wide standing counts, accumulated per URL across runs. These
+          // are the numbers to act on: the per-run figures drop to zero as soon
+          // as the rotation moves past a broken page.
+          canonicalIssues: cross.standing?.canonicalTotal ?? cross.canonicalIssues.length,
+          hreflangIssues: cross.standing?.hreflangTotal ?? cross.hreflangIssues.length,
           deadSitemapUrls: cross.deadSitemapUrls.length,
         }
       : null,

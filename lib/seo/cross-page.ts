@@ -1,4 +1,5 @@
 import { USER_AGENT } from "@/lib/config";
+import { recordCrossPageIssues } from "@/lib/seo/coverage";
 import { getSiteMap } from "@/lib/site/map";
 import type { CrossPageAudit, PageAudit } from "@/lib/types";
 
@@ -74,12 +75,25 @@ export async function runCrossPageChecks(
     }
   }
 
+  // The per-run lists above only cover this run's rotation slice. Merged into
+  // the standing record they become the site-wide list the official site's
+  // developers can actually work from.
+  const standing = await recordCrossPageIssues(
+    pages.filter((p) => p.ok).map((p) => p.url),
+    hreflangIssues,
+    canonicalIssues,
+  ).catch((err) => {
+    console.error("[seo/cross-page] standing-issue merge failed:", err);
+    return null;
+  });
+
   return {
     sitemapUrls: map.pages.length,
     auditedUrls,
     deadSitemapUrls: await sampleReachability(map.pages.map((p) => p.url)),
     hreflangIssues: hreflangIssues.slice(0, 25),
     canonicalIssues: canonicalIssues.slice(0, 25),
+    standing: standing ?? undefined,
   };
 }
 

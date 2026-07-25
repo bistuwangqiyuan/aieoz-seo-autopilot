@@ -8,6 +8,15 @@ const COVERAGE_KEY = "site/audit-coverage.json";
 interface CoverageRecord {
   /** url -> ISO timestamp of the most recent audit. */
   lastAuditedAt: Record<string, string>;
+  /**
+   * url -> cross-page faults found the last time that page was audited.
+   *
+   * Kept per URL rather than per run because the audit rotates: a run that
+   * reports "0 hreflang issues" has only looked at its own 38 pages, so a
+   * standing problem elsewhere on the site would appear to have been fixed. The
+   * site team needs the list of pages that are actually broken, not a sample.
+   */
+  crossPageIssues?: Record<string, { hreflang?: string; canonical?: string | null }>;
 }
 
 /**
@@ -51,7 +60,10 @@ export interface AuditPlan {
 
 async function readCoverage(): Promise<CoverageRecord> {
   const raw = await readKv<CoverageRecord>(COVERAGE_KEY).catch(() => null);
-  return { lastAuditedAt: raw?.lastAuditedAt ?? {} };
+  return {
+    lastAuditedAt: raw?.lastAuditedAt ?? {},
+    crossPageIssues: raw?.crossPageIssues ?? {},
+  };
 }
 
 /**
@@ -114,6 +126,74 @@ export async function recordAudited(urls: string[]): Promise<void> {
   await writeKv(COVERAGE_KEY, coverage).catch((err) => {
     console.error("[seo/coverage] write failed:", err);
   });
+}
+
+/** The site-wide standing fault list, as opposed to this run's sample. */
+export interface StandingIssues {
+  hreflang: { url: string; detail: string }[];
+  canonical: { url: string; canonical: string | null }[];
+  hreflangTotal: number;
+  canonicalTotal: number;
+}
+
+/** Cap on the examples carried in the snapshot; the totals stay exact. */
+const SAMPLE_CAP = 25;
+
+/**
+ * Merge this run's findings into the standing list: pages audited this run have
+ * their entry rewritten (or cleared, when the page comes back clean, so a fix on
+ * the official site shows up as fixed), and pages not audited this run keep
+ * whatever was last known about them.
+ */
+export async function recordCrossPageIssues(
+  auditedUrls: string[],
+  hreflang: { url: string; detail: string }[],
+  canonical: { url: string; canonical: string | null }[],
+): Promise<StandingIssues> {
+  const coverage = await readCoverage();
+  const issues = coverage.crossPageIssues ?? {};
+
+  const hreflangByUrl = new Map(hreflang.map((h) => [h.url, h.detail] as const));
+  const canonicalByUrl = new Map(canonical.map((c) => [c.url, c.canonical] as const));
+
+  for (const url of auditedUrls) {
+    const entry: { hreflang?: string; canonical?: string | null } = {};
+    if (hreflangByUrl.has(url)) entry.hreflang = hreflangByUrl.get(url);
+    if (canonicalByUrl.has(url)) entry.canonical = canonicalByUrl.get(url) ?? null;
+    if (Object.keys(entry).length > 0) issues[url] = entry;
+    else delete issues[url];
+  }
+
+  // Forget pages the site no longer publishes, as the coverage record does.
+  const map = await getSiteMap();
+  if (map.pages.length > 0) {
+    const live = new Set(map.pages.map((p) => p.url));
+    for (const url of Object.keys(issues)) if (!live.has(url)) delete issues[url];
+  }
+
+  coverage.crossPageIssues = issues;
+  await writeKv(COVERAGE_KEY, coverage).catch((err) => {
+    console.error("[seo/coverage] cross-page write failed:", err);
+  });
+
+  return summarize(issues);
+}
+
+function summarize(issues: Record<string, { hreflang?: string; canonical?: string | null }>): StandingIssues {
+  const hreflang: StandingIssues["hreflang"] = [];
+  const canonical: StandingIssues["canonical"] = [];
+
+  for (const [url, entry] of Object.entries(issues)) {
+    if (entry.hreflang) hreflang.push({ url, detail: entry.hreflang });
+    if (entry.canonical !== undefined) canonical.push({ url, canonical: entry.canonical });
+  }
+
+  return {
+    hreflang: hreflang.slice(0, SAMPLE_CAP),
+    canonical: canonical.slice(0, SAMPLE_CAP),
+    hreflangTotal: hreflang.length,
+    canonicalTotal: canonical.length,
+  };
 }
 
 export interface CoverageStats {
