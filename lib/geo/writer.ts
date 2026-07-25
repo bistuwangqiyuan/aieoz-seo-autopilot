@@ -2,7 +2,7 @@ import { z } from "zod";
 import { getGeoConfig, hasAiKey } from "@/lib/config";
 import { generateObjectWithFallback } from "@/lib/ai/client";
 import { getEvidenceUrl, resolveLandingTarget } from "@/lib/site/landing";
-import { findViolations } from "@/lib/geo/rules";
+import { currentRulesVersion, findViolations } from "@/lib/geo/rules";
 import type { GeoArticle, GeoKeyword } from "@/lib/types";
 
 const BENCH_REPO = "https://github.com/mingxin-tech/mingxin-kvcache-bench";
@@ -94,13 +94,20 @@ export async function writeArticle(keyword: GeoKeyword): Promise<GeoArticle> {
   const withLinks = (text: string, source: string) =>
     ensureEvidenceLink(ensureUtmBacklink(text, referenceUrl, source), evidenceUrl, source);
 
+  const markdown = withLinks(body.markdown, "geo-article");
+  // The pre-publication gate has already applied these rules, but a revision
+  // pass is allowed to improve an article without fully clearing it. Only stamp
+  // the ones that are actually clean, so anything short of that stays in the
+  // sweep queue instead of being marked done.
+  const clean = findViolations(markdown).length === 0;
+
   return {
     slug,
     keyword: keyword.keyword,
     title: body.title,
     description: body.description,
     tags: body.tags.map((t) => t.toLowerCase().replace(/[^a-z0-9-]/g, "-").replace(/-+/g, "-")).slice(0, 4),
-    markdown: withLinks(body.markdown, "geo-article"),
+    markdown,
     quoraAnswer: withLinks(body.quoraAnswer, "quora"),
     redditPost: withLinks(body.redditPost, "reddit"),
     referenceUrl,
@@ -109,6 +116,8 @@ export async function writeArticle(keyword: GeoKeyword): Promise<GeoArticle> {
     createdAt: now,
     aiGenerated: ai !== null,
     publishResults: [],
+    integrityCheckedAt: now,
+    integrityRulesVersion: clean ? currentRulesVersion() : undefined,
   };
 }
 

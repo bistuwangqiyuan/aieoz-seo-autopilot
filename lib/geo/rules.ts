@@ -255,6 +255,47 @@ function findAttributionViolations(markdown: string, context: string): Integrity
   return violations;
 }
 
+/* ---------- Rule-set versioning ---------- */
+
+/**
+ * Adding a rule is worthless if the corpus published before it is never
+ * re-examined. That happened once already: the misattribution rule landed while
+ * five live articles carried exactly that fault, and the rotation would have
+ * taken a day to stumble onto them — the fault was found by hand, which is the
+ * one thing this system is not allowed to depend on.
+ *
+ * So each article records the rule set it was cleared against. Change a
+ * pattern, or change the product context the numeric allowlist derives from,
+ * and every article's stamp goes stale, which puts the whole corpus back at the
+ * front of the sweep queue automatically.
+ */
+function fnv1a(input: string): string {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < input.length; i += 1) {
+    hash ^= input.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  return hash.toString(16).padStart(8, "0");
+}
+
+/** Identifies what "compliant" currently means, for staleness comparison. */
+export function currentRulesVersion(context?: string): string {
+  const surface = [
+    ...RULES.map((r) => `${r.id}|${r.pattern.source}`),
+    METRIC_PATTERN.source,
+    SECONDS_PATTERN.source,
+    UNMEASURED_MODELS.source,
+    LEGACY_NAMES.source,
+    VENDOR_SPEC_FIGURES.source,
+    VENDOR_SPEC_LABEL.source,
+    PROVENANCE_HEDGE.source,
+    // The allowlist is derived from the context, so the context is part of the
+    // definition: a new verified figure legitimises text that was a violation.
+    context ?? getGeoConfig().productContext,
+  ].join("\n");
+  return fnv1a(surface);
+}
+
 /**
  * All integrity violations in a piece of text. `context` defaults to the
  * configured product context; pass it explicitly to test against a fixed set.

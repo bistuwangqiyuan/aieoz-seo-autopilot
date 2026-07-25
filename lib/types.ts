@@ -246,6 +246,12 @@ export interface GeoArticle {
   integrityCheckedAt?: string;
   /** Unrepaired integrity violations, empty when the article is clean. */
   integrityFlags?: string[];
+  /**
+   * Which rule set the article was last found clean against. A mismatch with
+   * the current version means new rules exist that this text has never faced,
+   * so it re-enters the sweep queue without anyone having to notice.
+   */
+  integrityRulesVersion?: string;
 }
 
 /* ==================== Content integrity ==================== */
@@ -267,6 +273,10 @@ export interface IntegritySweep {
   repaired: number;
   /** Articles still carrying violations after an attempted rewrite. */
   unrepaired: { slug: string; violations: IntegrityViolation[] }[];
+  /** Rule set this sweep enforced. */
+  rulesVersion?: string;
+  /** Articles awaiting a check against that rule set when the sweep started. */
+  staleBefore?: number;
 }
 
 /** Ready-to-paste draft for platforms without a publish API. */

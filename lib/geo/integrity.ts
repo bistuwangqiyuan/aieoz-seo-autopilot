@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { generateObjectWithFallback } from "@/lib/ai/client";
 import { getGeoConfig, hasAiKey } from "@/lib/config";
-import { findViolations } from "@/lib/geo/rules";
+import { currentRulesVersion, findViolations } from "@/lib/geo/rules";
 import { editTelegraphPage } from "@/lib/geo/publishers/telegraph";
 import { ensureEvidenceLink, ensureUtmBacklink } from "@/lib/geo/writer";
 import type { GeoArticle, GeoState, IntegritySweep, IntegrityViolation } from "@/lib/types";
@@ -24,17 +24,36 @@ const repairSchema = z.object({
 
 /** Articles re-checked per cycle; each repair costs an AI call plus a platform edit. */
 const SWEEP_BATCH = 4;
+/**
+ * Verifying costs nothing but CPU — only a *failing* article costs an AI call.
+ * So when the rule set changes, scan far more widely than we could afford to
+ * repair, to find out how big the backlog is in one pass instead of discovering
+ * it one rotation slot at a time.
+ */
+const RESCAN_BATCH = 40;
+
+/** Articles not yet cleared against the current rules, worst-first. */
+export function staleForRules(state: GeoState, version: string): GeoArticle[] {
+  return state.articles.filter((a) => a.integrityRulesVersion !== version);
+}
 
 export async function runIntegritySweep(
   state: GeoState,
   deadline = Number.POSITIVE_INFINITY,
 ): Promise<IntegritySweep> {
-  // Oldest-checked first, so the whole corpus is revisited on a rotation
-  // rather than the sweep fixating on the newest articles.
-  const queue = [...state.articles].sort((a, b) =>
-    (a.integrityCheckedAt ?? "").localeCompare(b.integrityCheckedAt ?? ""),
-  );
-  const batch = queue.slice(0, SWEEP_BATCH);
+  const version = currentRulesVersion();
+  const stale = staleForRules(state, version);
+
+  // Articles never checked under the current rules come first; after that,
+  // oldest-checked first so the corpus is revisited on a rotation rather than
+  // the sweep fixating on the newest articles.
+  const queue = [
+    ...stale,
+    ...state.articles
+      .filter((a) => a.integrityRulesVersion === version)
+      .sort((a, b) => (a.integrityCheckedAt ?? "").localeCompare(b.integrityCheckedAt ?? "")),
+  ];
+  const batch = queue.slice(0, stale.length > 0 ? RESCAN_BATCH : SWEEP_BATCH);
 
   const sweep: IntegritySweep = {
     checkedAt: new Date().toISOString(),
@@ -42,24 +61,40 @@ export async function runIntegritySweep(
     flagged: 0,
     repaired: 0,
     unrepaired: [],
+    rulesVersion: version,
+    staleBefore: stale.length,
   };
 
-  for (const article of batch) {
-    // Checking is cheap; repairing costs an AI call plus a platform edit. Stop
-    // before starting one we may not be able to finish and republish.
-    if (Date.now() > deadline) break;
-    sweep.checked += 1;
+  // Verify the whole batch first. Repairs are rate-limited by the time budget,
+  // and a run that repairs two articles but knows about all twenty is far more
+  // useful than one that reports only what it had time to touch.
+  const dirty: { article: GeoArticle; violations: IntegrityViolation[] }[] = [];
 
+  for (const article of batch) {
+    sweep.checked += 1;
     const violations = findViolations(article.markdown);
     article.integrityCheckedAt = sweep.checkedAt;
 
     if (violations.length === 0) {
       article.integrityFlags = [];
+      // Cleared against this exact rule set — safe to skip until rules change.
+      article.integrityRulesVersion = version;
       continue;
     }
 
     sweep.flagged += 1;
     article.integrityFlags = violations.map((v) => `${v.rule}: ${v.matched}`);
+    dirty.push({ article, violations });
+  }
+
+  for (const { article, violations } of dirty) {
+    // A repair costs an AI call plus a platform edit. Stop before starting one
+    // we may not be able to finish and republish; an article left unstamped
+    // stays at the front of the queue and is retried next cycle.
+    if (Date.now() > deadline) {
+      sweep.unrepaired.push({ slug: article.slug, violations });
+      continue;
+    }
 
     const repaired = await repairArticle(article, violations).catch((err) => {
       console.error(`[geo/integrity] repair failed for ${article.slug}:`, err);
@@ -75,6 +110,7 @@ export async function runIntegritySweep(
       await republish(article, repaired, state);
       article.markdown = repaired;
       article.integrityFlags = [];
+      article.integrityRulesVersion = version;
       sweep.repaired += 1;
     } catch (err) {
       console.error(`[geo/integrity] republish failed for ${article.slug}:`, err);

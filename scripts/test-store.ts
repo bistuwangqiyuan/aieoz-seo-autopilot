@@ -32,6 +32,7 @@ const article: Required<GeoArticle> = {
   linkBackfilledAt: "2026-07-20T00:00:00.000Z",
   integrityCheckedAt: "2026-07-21T00:00:00.000Z",
   integrityFlags: ["unsourced-metric: 14.2 GB/s"],
+  integrityRulesVersion: "deadbeef",
 };
 
 const keyword: Required<GeoKeyword> = {

@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { getGeoState, getLatest, listHistory, storageMode } from "@/lib/store/blob";
 import { describeProviderChain } from "@/lib/ai/client";
+import { staleForRules } from "@/lib/geo/integrity";
+import { currentRulesVersion } from "@/lib/geo/rules";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -42,6 +44,7 @@ export async function GET(request: Request) {
   // progress is invisible there until the migration is nearly done.
   const deepLinked = geo.articles.filter((a) => !/\/en\/?$/.test(a.referenceUrl)).length;
 
+  const rulesVersion = currentRulesVersion();
   const citation = geo.citationHistory.at(-1) ?? null;
   const liveness = geo.livenessHistory.at(-1) ?? null;
   const cross = latest?.site.crossPage ?? null;
@@ -101,6 +104,10 @@ export async function GET(request: Request) {
         lastSweep: [...geo.cycles].reverse().find((c) => c.integrity)?.integrity ?? null,
         articlesChecked: geo.articles.filter((a) => a.integrityCheckedAt).length,
         articlesFlagged: geo.articles.filter((a) => (a.integrityFlags?.length ?? 0) > 0).length,
+        rulesVersion,
+        // Articles never checked against the rules as they stand now. Non-zero
+        // right after a rule change is expected; it should return to zero.
+        staleForRules: staleForRules(geo, rulesVersion).length,
       },
       indexNow: {
         available: false,

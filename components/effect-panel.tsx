@@ -171,6 +171,12 @@ function IntegrityCard({ state }: { state: GeoState }) {
   const lastSweep = [...state.cycles].reverse().find((c) => c.integrity)?.integrity ?? null;
   const flagged = state.articles.filter((a) => (a.integrityFlags?.length ?? 0) > 0);
   const everChecked = state.articles.filter((a) => a.integrityCheckedAt).length;
+  // Compared against the rule set the last sweep ran, since the current one is
+  // derived server-side from the product context.
+  const version = lastSweep?.rulesVersion;
+  const stale = version
+    ? state.articles.filter((a) => a.integrityRulesVersion !== version).length
+    : null;
 
   return (
     <div className="mt-3 rounded-xl border border-edge/50 bg-white/[0.02] p-3">
@@ -189,11 +195,23 @@ function IntegrityCard({ state }: { state: GeoState }) {
         {everChecked > 0 && ` · 累计已巡检 ${everChecked}/${state.articles.length} 篇`}
       </p>
 
+      {stale !== null && (
+        <p className="mt-1 text-[11px] text-white/45">
+          规则集 <code className="text-white/60">{version}</code> ·{" "}
+          {stale === 0 ? (
+            <span className="text-ok">全部 {state.articles.length} 篇均已按现行规则复核</span>
+          ) : (
+            <span className="text-warn">{stale} 篇尚未按现行规则复核（规则刚更新，将在后续循环自动补齐）</span>
+          )}
+        </p>
+      )}
+
       <p className="mt-1.5 text-[11px] text-white/50">
         <span className="text-white/65">口径：</span>
-        按「最久未检优先」轮转复核已发布正文，命中「无法证实的最高级表述、未经实测的软硬件栈/模型/组网/版本号、
-        夸大证据强度的措辞」等规则时，交由 AI 依据已核实产品资料重写并回写平台，
-        全程无人工介入；重写后仍不合规的文章会列在此处而不是被默认放过。
+        命中「无法证实的最高级表述、未经实测的软硬件栈/模型/组网/版本号、把 FX100 实测值安到 FX200/300/400 上、
+        无出处的量值」等规则时，交由 AI 依据已核实产品资料重写并回写平台，全程无人工介入；
+        重写后仍不合规的文章会列在此处而不是被默认放过。规则集带版本号——只要规则或已核实资料有改动，
+        全部存量文章会自动回到待复核队列，避免「新规则只管新文章」。
       </p>
 
       {flagged.length > 0 && (

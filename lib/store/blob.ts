@@ -247,6 +247,8 @@ export function sanitizeGeoState(raw: Partial<GeoState> | null | undefined): Geo
       linkBackfilledAt: typeof a.linkBackfilledAt === "string" ? a.linkBackfilledAt : undefined,
       integrityCheckedAt: typeof a.integrityCheckedAt === "string" ? a.integrityCheckedAt : undefined,
       integrityFlags: Array.isArray(a.integrityFlags) ? arr<string>(a.integrityFlags) : undefined,
+      integrityRulesVersion:
+        typeof a.integrityRulesVersion === "string" ? a.integrityRulesVersion : undefined,
     }));
 
   const draftQueue = arr<Partial<GeoState["draftQueue"][number]>>(raw?.draftQueue)
