@@ -240,6 +240,13 @@ export function sanitizeGeoState(raw: Partial<GeoState> | null | undefined): Geo
       createdAt: typeof a.createdAt === "string" ? a.createdAt : now,
       aiGenerated: Boolean(a.aiGenerated),
       publishResults: arr<GeoState["articles"][number]["publishResults"][number]>(a.publishResults),
+      // Progress markers for the one-off backlink migration and the rolling
+      // integrity sweep. Dropping them here would not lose an article, it
+      // would lose the record that we already handled it — so both jobs would
+      // reprocess the same oldest few every cycle and never finish.
+      linkBackfilledAt: typeof a.linkBackfilledAt === "string" ? a.linkBackfilledAt : undefined,
+      integrityCheckedAt: typeof a.integrityCheckedAt === "string" ? a.integrityCheckedAt : undefined,
+      integrityFlags: Array.isArray(a.integrityFlags) ? arr<string>(a.integrityFlags) : undefined,
     }));
 
   const draftQueue = arr<Partial<GeoState["draftQueue"][number]>>(raw?.draftQueue)

@@ -43,6 +43,7 @@ GEO 文章主回链指向官网 **112 个英文页面**中最相关的深层落�
 2. **AI 写文**：为最高优先级词生产「问题解答型」权威英文长文（1200+ 词，含数据、对比表、FAQ）。
    生成后有确定性质量闸门：字数、对比表、FAQ 三项任一不达标即带着具体缺陷描述回炉重写一次。
    **数据纪律**：引用铭信实测数据必须保留签字级报告编号（R1–R9）且不得改动数字；
+   R1–R9 的被测设备统一是 FX100，不得把这些数字安到 FX200/FX300/FX400 头上；
    厂商口径（如 FX400 规格）必须明确标注为未实测；并提及开源测试套件
    [mingxin-kvcache-bench](https://github.com/mingxin-tech/mingxin-kvcache-bench) 供第三方复现
 3. **站外多平台自动分发**：
@@ -155,13 +156,15 @@ vercel --prod
 均为只读或纯离线，可随时运行：
 
 ```bash
-npx tsx scripts/test-integrity.ts                             # 一致性规则：拦截 11 条编造 / 放行 10 条事实
+npx tsx scripts/test-integrity.ts                             # 一致性规则：拦截 34 条编造/错配 / 放行 21 条事实
+npx tsx scripts/test-store.ts                                 # 存档往返：新增字段不被清洗函数悄悄丢弃
 npx tsx scripts/test-backfill.ts                              # 回链改写：7 组边界用例，防止改坏线上文章
 npx tsx --env-file=.env.local scripts/test-coverage.ts        # 审计轮转：覆盖率、并发、跨页检查（实抓官网）
 npx tsx --env-file=.env.local scripts/test-keywords.ts        # 挖词去重 + 深层回链解析率
 npx tsx --env-file=.env.local scripts/test-landing.ts         # 落地页解析器逐词对照
-npx tsx --env-file=.env.local scripts/test-article.ts         # 端到端生成一篇并逐项校验
+npx tsx --env-file=.env.local scripts/test-article.ts         # 端到端生成一篇并逐项校验（含零违规断言）
 npx tsx --env-file=.env.local scripts/audit-live-articles.ts  # 线上正文合规核查（只读）
+node scripts/verify-production.mjs                            # 对线上部署逐条核验各阶段验收标准
 ```
 
 ## SEO 评分维度
@@ -235,9 +238,25 @@ Referral 出现 `reddit.com`、来源出现 `perplexity`、来源出现 `chatgpt
 | 精确版本号（vLLM x.y.z） | 公开材料未标注版本号，会造成不可复现的引用 |
 | 夸大证据强度（cryptographically signed / tamper-proof） | 报告是第三方联合测试签署，不是密码学签名 |
 | 固件版本号 | 未公开，写出即为编造 |
+| **无出处的数值**（任何不在已核实资料中的带单位数字） | 文章的全部说服力来自「每个数字都可下载复现」；举例值与实测值在读者眼里无法区分 |
+| **张冠李戴的实测值**（把 R1–R9 数字安到 FX200/FX300/FX400 上） | 见下 |
+| **把 FX400 写成在售或已实测** | 官网口径为 2026 年底量产、当前仅厂商标称值 |
+| **把 AISSD5000/WS5000/GP5000 当作独立在售型号** | 官网明示这是 FX100 的历史称谓，仅保留在报告文件名中 |
+| **引用 4.8 Tb/s、1.4 亿 IOPS 不标厂商口径** | 官网对每个数字都标注来源（实测/厂商/公开/估算），不标注会把预期读成测量 |
 
-规则的反向也做了校验：`scripts/test-integrity.ts` 同时验证 11 条编造表述被拦下、
-10 条已核实事实（R1–R9 数字、Ascend 910B / MI308X、NVMe-oF、开源仓库名等）不被误伤 —— 
-误伤会把正确内容改坏，和漏判一样有害。
+其中「张冠李戴」是最难发现的一类：官网证据库明示 R1–R9 的被测设备统一是 **FX100**
+（`Device under test: Mingxin FX100`），FX200/FX300/FX400 是真实产品但**没有任何公开实测数据**。
+于是「FX300 把 TTFT 降低 26–32%」这句话——型号是真的、数字是真的、报告编号也是真的——整句却是假的，
+逐词校验和数值白名单都拦不住它。因此规则改为**按句校验归属**：一句话里出现实测数值却只提到未实测型号即判违规；
+而「R1–R9 测的是 FX100，FX300 尚无公开实测」这类交代出处的句子会被放行——
+规则不能通过「闭口不谈这些型号」来满足，那本身就是另一种失真。
+
+同一个前提在挖词阶段就被拦下：`what benchmarks are available for fx300` 这类问题**没有诚实的答案**，
+照实回答等于否定问题、答得流畅就等于编数据，所以这类词在入池时直接丢弃，
+并且每轮会清理一次存量词池——先于规则入库的词否则会继续生产规则本要阻止的文章。
+
+规则的反向也做了校验：`scripts/test-integrity.ts` 同时验证 34 条编造/错配表述被拦下、
+21 条已核实事实（R1–R9 数字、Ascend 910B / MI308X、NVMe-oF、开源仓库名、
+「FX300 尚无公开实测」等诚实表述）不被误伤 —— 误伤会把正确内容改坏，和漏判一样有害。
 
 线上正文的独立核查用 `npx tsx --env-file=.env.local scripts/audit-live-articles.ts`（只读，复用同一套规则）。
