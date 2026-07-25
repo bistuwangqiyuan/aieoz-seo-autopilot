@@ -45,10 +45,11 @@ export function GeoPanel({ state }: { state: GeoState }) {
       <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 className="text-base font-semibold text-white/90">
-            GEO 生成式引擎优化 <span className="text-xs font-normal text-white/40">· 四步循环 · 每 4 小时</span>
+            GEO 生成式引擎优化 <span className="text-xs font-normal text-white/40">· 每 4 小时</span>
           </h2>
           <p className="mt-1 text-xs text-white/50">
-            AI 挖词 → AI 写权威英文长文（实测数据带 R1–R9 报告编号）→ 站外多平台自动分发（回链官网 /en）→ GA4 检测 Reddit / Perplexity / ChatGPT 引流信号
+            AI 挖词（避开官网已覆盖主题、与存量文章语义去重）→ AI 写权威英文长文（实测数据带 R1–R9 报告编号）→
+            站外多平台自动分发，主回链指向官网最相关的深层落地页、次链指向 /en/evidence → 效果监测见下方「效果监测」区
           </p>
         </div>
         <RunGeoButton />
@@ -111,6 +112,8 @@ export function GeoPanel({ state }: { state: GeoState }) {
         {lastCheck?.error && <p className="mt-2 text-[11px] text-warn">GA4 错误：{lastCheck.error}</p>}
       </div>
 
+      <PlatformReadiness state={state} />
+
       {/* Step 2/3: article publish log */}
       <div className="mb-5">
         <h3 className="mb-2 text-xs font-semibold uppercase tracking-widest text-white/40">
@@ -143,6 +146,27 @@ export function GeoPanel({ state }: { state: GeoState }) {
                   <span className="shrink-0 text-[11px] text-white/40">{formatDateTime(a.createdAt)}</span>
                 </div>
                 <p className="mt-0.5 text-[11px] text-white/45">关键词：{a.keyword}</p>
+                <p className="mt-0.5 text-[11px] text-white/45">
+                  回链落地页：
+                  <a
+                    href={a.referenceUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-accent hover:underline"
+                  >
+                    {a.referenceUrl.replace(/^https?:\/\/[^/]+/, "")}
+                  </a>
+                  {a.landingKind && a.landingKind !== "core" && (
+                    <span className="ml-1.5 rounded border border-ok/40 px-1 py-0.5 text-[10px] text-ok">
+                      深层页 · {a.landingKind}
+                    </span>
+                  )}
+                  {a.linkBackfilledAt && (
+                    <span className="ml-1.5 rounded border border-edge px-1 py-0.5 text-[10px] text-white/40">
+                      已回溯改链
+                    </span>
+                  )}
+                </p>
                 <div className="mt-2 flex flex-wrap gap-1.5">
                   {a.publishResults.map((r, i) => (
                     <span
@@ -244,6 +268,89 @@ export function GeoPanel({ state }: { state: GeoState }) {
         )}
       </div>
     </section>
+  );
+}
+
+const PLATFORM_NOTE: Record<PublishResult["platform"], string> = {
+  devto: "技术受众最对口、域名权重最高，作为首发平台；未配置 DEVTO_API_KEY 时整条分发链只剩低权重平台",
+  hashnode: "开发者博客平台，跨发时以 Dev.to 为 canonical",
+  telegraph: "匿名即时发布、无需凭据，但不支持表格且权重低，只作兜底",
+  reddit: "发到账号自己的主页（u_username），不涉及子版规则",
+};
+
+/**
+ * Which platforms are actually reachable. A missing credential shows up in the
+ * log as a quiet "skipped" on every article, which is easy to scroll past —
+ * stating it once, up front, is the difference between a known gap and an
+ * unnoticed one.
+ */
+function PlatformReadiness({ state }: { state: GeoState }) {
+  const recent = state.articles.slice(-5).flatMap((a) => a.publishResults);
+  if (recent.length === 0) return null;
+
+  const platforms = Object.keys(PLATFORM_LABEL) as PublishResult["platform"][];
+  const summary = platforms.map((platform) => {
+    const results = recent.filter((r) => r.platform === platform);
+    const published = results.filter((r) => r.status === "published").length;
+    const skipped = results.filter((r) => r.status === "skipped");
+    return {
+      platform,
+      published,
+      total: results.length,
+      unconfigured: results.length > 0 && skipped.length === results.length,
+      detail: skipped[0]?.detail,
+    };
+  });
+
+  const missing = summary.filter((s) => s.unconfigured);
+
+  return (
+    <div className="mb-5">
+      <h3 className="mb-2 text-xs font-semibold uppercase tracking-widest text-white/40">
+        分发平台可用性（近 5 篇）
+      </h3>
+      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+        {summary.map((s) => (
+          <div
+            key={s.platform}
+            className={`rounded-xl border p-2.5 ${
+              s.unconfigured
+                ? "border-warn/40 bg-warn/5"
+                : s.published > 0
+                  ? "border-ok/40 bg-ok/5"
+                  : "border-bad/40 bg-bad/5"
+            }`}
+            title={PLATFORM_NOTE[s.platform]}
+          >
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-xs font-medium text-white/80">{PLATFORM_LABEL[s.platform]}</span>
+              <span
+                className={`text-xs tabular-nums ${
+                  s.unconfigured ? "text-warn" : s.published > 0 ? "text-ok" : "text-bad"
+                }`}
+              >
+                {s.unconfigured ? "未配置" : `${s.published}/${s.total}`}
+              </span>
+            </div>
+            <p className="mt-1 line-clamp-2 text-[10px] text-white/40">{PLATFORM_NOTE[s.platform]}</p>
+          </div>
+        ))}
+      </div>
+      {missing.length > 0 && (
+        <p className="mt-2 text-[11px] text-warn">
+          缺少凭据：{missing.map((m) => PLATFORM_LABEL[m.platform]).join("、")}。
+          {missing.some((m) => m.platform === "devto") && (
+            <>
+              {" "}
+              其中 Dev.to 是权重最高的首发平台，未配置时新文章只能落到 Telegraph 这类低权重站点，
+              分发效果会显著打折。在 Vercel 生产环境加上{" "}
+              <code className="text-white/60">DEVTO_API_KEY</code>
+              （Dev.to → Settings → Extensions → DEV Community API Keys）即可自动启用，无需改代码。
+            </>
+          )}
+        </p>
+      )}
+    </div>
   );
 }
 

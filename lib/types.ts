@@ -68,6 +68,57 @@ export interface SiteSignals {
   origin: string;
   robotsTxt: { present: boolean; hasSitemap: boolean; content: string | null };
   sitemapXml: { present: boolean; urlCount: number };
+  /** Cross-page checks that a single-page audit cannot see. */
+  crossPage?: CrossPageAudit;
+}
+
+/**
+ * Site-wide structural checks derived from the sitemap + the pages audited in
+ * this run. These catch problems (hreflang gaps, dead sitemap entries, wrong
+ * canonicals) that are invisible when each page is looked at in isolation.
+ */
+export interface CrossPageAudit {
+  /** Total URLs discovered in the official sitemap. */
+  sitemapUrls: number;
+  /** URLs audited at least once so far (rotating coverage). */
+  auditedUrls: number;
+  /** Sampled sitemap URLs that did not return 2xx. */
+  deadSitemapUrls: { url: string; status: number }[];
+  /** Pages whose zh/en counterpart is missing a reciprocal hreflang link. */
+  hreflangIssues: { url: string; detail: string }[];
+  /** Pages whose canonical does not point at themselves. */
+  canonicalIssues: { url: string; canonical: string | null }[];
+}
+
+/* ==================== Official-site page map ==================== */
+
+export type SitePageKind =
+  | "core"
+  | "topic"
+  | "compare"
+  | "scenario"
+  | "solution"
+  | "insight"
+  | "other";
+
+/** One URL discovered in the official site's sitemap. */
+export interface SitePage {
+  url: string;
+  /** Path without origin, e.g. "/en/topics/ttft-optimization". */
+  path: string;
+  lang: "zh" | "en";
+  kind: SitePageKind;
+  /** Last path segment, e.g. "ttft-optimization" (empty for the home page). */
+  slug: string;
+}
+
+/** Cached parse of the official sitemap; refreshed automatically. */
+export interface SiteMapCache {
+  origin: string;
+  fetchedAt: string;
+  pages: SitePage[];
+  /** Set when the last refresh failed and stale pages are being served. */
+  error?: string;
 }
 
 /**
@@ -172,14 +223,50 @@ export interface GeoArticle {
   /** Reddit post body (text post). */
   redditPost: string;
   /**
-   * Official-site link (EN landing page) every platform variant points to.
-   * Articles live only on the platforms themselves — nothing is written
-   * on-site, so there is no cross-platform canonical.
+   * Primary backlink target: the official-site English page most relevant to
+   * this keyword (a /en/topics, /en/compare or /en/scenarios page when one
+   * exists, otherwise /en). Articles live only on the platforms themselves —
+   * nothing is written on-site, so there is no cross-platform canonical.
    */
   referenceUrl: string;
+  /** Kind of page `referenceUrl` resolved to — surfaced on the dashboard. */
+  landingKind?: SitePageKind;
+  /** Secondary link to the signed-report evidence library (/en/evidence). */
+  evidenceUrl?: string;
   createdAt: string;
   aiGenerated: boolean;
   publishResults: PublishResult[];
+  /**
+   * Set once the article's backlinks have been repointed from the /en home
+   * page to a deep landing page. Recorded even when the keyword legitimately
+   * resolves to /en, so the one-off migration does not re-resolve it forever.
+   */
+  linkBackfilledAt?: string;
+  /** Last automated integrity sweep over this article's published text. */
+  integrityCheckedAt?: string;
+  /** Unrepaired integrity violations, empty when the article is clean. */
+  integrityFlags?: string[];
+}
+
+/* ==================== Content integrity ==================== */
+
+/** A claim in a published article that the verified product context cannot support. */
+export interface IntegrityViolation {
+  /** Rule id, e.g. "invented-model". */
+  rule: string;
+  /** The offending text as it appears in the article. */
+  matched: string;
+  reason: string;
+  excerpt: string;
+}
+
+export interface IntegritySweep {
+  checkedAt: string;
+  checked: number;
+  flagged: number;
+  repaired: number;
+  /** Articles still carrying violations after an attempted rewrite. */
+  unrepaired: { slug: string; violations: IntegrityViolation[] }[];
 }
 
 /** Ready-to-paste draft for platforms without a publish API. */
@@ -223,10 +310,77 @@ export interface GeoCycle {
   /** Flattened publish results from this cycle. */
   publishResults: PublishResult[];
   signalCheck: GeoSignalCheck | null;
+  /** Effect measurement collected this cycle (citation / liveness). */
+  effect?: EffectSnapshot;
+  /** Automated fact-integrity sweep over already-published articles. */
+  integrity?: IntegritySweep;
   error?: string;
 }
 
-/** Persistent GEO state stored in Blob (geo/state.json). */
+/* ==================== Effect measurement ==================== */
+
+/**
+ * Whether one LLM mentions Mingxin when asked a target buyer question.
+ *
+ * IMPORTANT CAVEAT (surfaced verbatim on the dashboard): most providers in the
+ * fallback chain answer from parametric memory with no live retrieval, so this
+ * measures "does the model already know Mingxin", not "did it just read our
+ * article". It is a slow-moving lagging indicator, not a weekly KPI. Providers
+ * that do retrieve are flagged with `retrieval: true` and reported separately.
+ */
+export interface CitationProbe {
+  question: string;
+  model: string;
+  retrieval: boolean;
+  /** Brand / domain / product / report-ID mentioned anywhere in the answer. */
+  mentioned: boolean;
+  /** Which markers matched, e.g. ["mingxin", "fx100", "R2"]. */
+  matches: string[];
+  error?: string;
+}
+
+export interface CitationCheck {
+  checkedAt: string;
+  probes: CitationProbe[];
+  /** Share of probes that mentioned Mingxin (0-1), retrieval models excluded. */
+  memoryRate: number;
+  /** Share of retrieval-capable probes that mentioned Mingxin (0-1), or null. */
+  retrievalRate: number | null;
+}
+
+/** Is a published article still live, and does it still carry our backlink? */
+export interface LivenessProbe {
+  platform: PublishPlatform;
+  url: string;
+  httpStatus: number;
+  live: boolean;
+  /** True when the official-site backlink is still present in the page body. */
+  backlinkPresent: boolean;
+}
+
+export interface LivenessCheck {
+  checkedAt: string;
+  probes: LivenessProbe[];
+  liveCount: number;
+  totalCount: number;
+}
+
+/**
+ * All effect signals collected in one cycle.
+ *
+ * Deliberately excludes IndexNow submission: IndexNow requires the key file to
+ * be hosted on the same host as the submitted URLs. Our articles live on
+ * telegra.ph / dev.to and the official site is mingxinstorage.xyz — we control
+ * neither, and the official site does not host our key (verified 404). Adding
+ * a submission step would produce a metric that either always fails or claims
+ * a success it cannot have, so it is left out and explained on the dashboard.
+ */
+export interface EffectSnapshot {
+  citation: CitationCheck | null;
+  liveness: LivenessCheck | null;
+}
+
+/** Persistent GEO state stored in Postgres/Blob (geo/state.json). */
 export interface GeoState {
   keywords: GeoKeyword[];
   articles: GeoArticle[];
@@ -237,4 +391,8 @@ export interface GeoState {
   cycles: GeoCycle[];
   /** Telegraph anonymous account token (created once, reused). */
   telegraphToken?: string;
+  /** Rolling history of AI-engine citation probes. */
+  citationHistory: CitationCheck[];
+  /** Rolling history of published-article liveness checks. */
+  livenessHistory: LivenessCheck[];
 }

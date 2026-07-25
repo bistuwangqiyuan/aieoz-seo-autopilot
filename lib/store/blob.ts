@@ -120,6 +120,26 @@ async function writeJson(key: string, data: unknown): Promise<void> {
   if (mode === "blob") return blobWrite(key, data);
 }
 
+/**
+ * Generic KV access for auxiliary records (site map, audit coverage) that do
+ * not warrant their own typed accessor. In-memory mode keeps them in a plain
+ * map so local runs behave like production.
+ */
+const memKv = new Map<string, unknown>();
+
+export async function readKv<T>(key: string): Promise<T | null> {
+  if (storageMode() === "memory") return (memKv.get(key) as T) ?? null;
+  return readJson<T>(key);
+}
+
+export async function writeKv(key: string, data: unknown): Promise<void> {
+  if (storageMode() === "memory") {
+    memKv.set(key, data);
+    return;
+  }
+  await writeJson(key, data);
+}
+
 /* ==================== SEO snapshots ==================== */
 
 export async function saveSnapshot(snapshot: Snapshot): Promise<void> {
@@ -166,6 +186,8 @@ export function emptyGeoState(): GeoState {
     signalFirstSeen: {},
     signalHistory: [],
     cycles: [],
+    citationHistory: [],
+    livenessHistory: [],
   };
 }
 
@@ -173,6 +195,7 @@ const MAX_GEO_ARTICLES = 400;
 const MAX_GEO_DRAFTS = 200;
 const MAX_GEO_SIGNAL_CHECKS = 180; // ~30 days at 6 checks/day
 const MAX_GEO_CYCLES = 180;
+const MAX_EFFECT_CHECKS = 180;
 
 export async function getGeoState(): Promise<GeoState> {
   const raw = storageMode() === "memory" ? mem.geo : await readJson<Partial<GeoState>>(GEO_STATE_KEY);
@@ -212,6 +235,8 @@ export function sanitizeGeoState(raw: Partial<GeoState> | null | undefined): Geo
       quoraAnswer: typeof a.quoraAnswer === "string" ? a.quoraAnswer : "",
       redditPost: typeof a.redditPost === "string" ? a.redditPost : "",
       referenceUrl: typeof a.referenceUrl === "string" ? a.referenceUrl : "",
+      landingKind: typeof a.landingKind === "string" ? a.landingKind : undefined,
+      evidenceUrl: typeof a.evidenceUrl === "string" ? a.evidenceUrl : undefined,
       createdAt: typeof a.createdAt === "string" ? a.createdAt : now,
       aiGenerated: Boolean(a.aiGenerated),
       publishResults: arr<GeoState["articles"][number]["publishResults"][number]>(a.publishResults),
@@ -238,6 +263,8 @@ export function sanitizeGeoState(raw: Partial<GeoState> | null | undefined): Geo
     signalHistory: arr(raw?.signalHistory),
     cycles: arr(raw?.cycles),
     telegraphToken: typeof raw?.telegraphToken === "string" ? raw.telegraphToken : undefined,
+    citationHistory: arr(raw?.citationHistory),
+    livenessHistory: arr(raw?.livenessHistory),
   };
 }
 
@@ -248,6 +275,8 @@ export async function saveGeoState(state: GeoState): Promise<void> {
     draftQueue: state.draftQueue.slice(-MAX_GEO_DRAFTS),
     signalHistory: state.signalHistory.slice(-MAX_GEO_SIGNAL_CHECKS),
     cycles: state.cycles.slice(-MAX_GEO_CYCLES),
+    citationHistory: state.citationHistory.slice(-MAX_EFFECT_CHECKS),
+    livenessHistory: state.livenessHistory.slice(-MAX_EFFECT_CHECKS),
   };
   if (storageMode() === "memory") {
     mem.geo = trimmed;

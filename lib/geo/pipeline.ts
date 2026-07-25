@@ -4,14 +4,23 @@ import { mineKeywords, pickKeywordsToWrite } from "@/lib/geo/keywords";
 import { writeArticle } from "@/lib/geo/writer";
 import { distributeArticle } from "@/lib/geo/publishers";
 import { checkGeoSignals } from "@/lib/geo/signals";
+import { backfillArticleLinks } from "@/lib/geo/backfill";
+import { runIntegritySweep } from "@/lib/geo/integrity";
+import { runCitationCheck, runLivenessCheck } from "@/lib/geo/effects";
 import type { GeoCycle, PublishResult } from "@/lib/types";
 
 /**
- * The full 4-step GEO loop, run every cycle (cron or manual):
+ * The GEO loop, run every cycle (cron or manual):
  *   1. mine long-tail keywords (top up the pool)
  *   2. write authoritative articles for the highest-priority pending keywords
  *   3. distribute to all configured platforms + enqueue Medium/Quora drafts
- *   4. check GA4 for reddit/perplexity/chatgpt traffic signals
+ *   4. repoint a batch of pre-deep-linking articles at their proper landing page
+ *   5. sweep published articles for unsupported claims and rewrite them
+ *   6. measure effect: AI-engine citation + published-article liveness
+ *   7. check GA4 for reddit/perplexity/chatgpt traffic signals
+ *
+ * Steps 4-7 are best-effort: a failure there must not lose the articles that
+ * steps 1-3 just produced, so each is wrapped independently.
  */
 export async function runGeoCycle(trigger: GeoCycle["trigger"]): Promise<GeoCycle> {
   const start = Date.now();
@@ -57,8 +66,55 @@ export async function runGeoCycle(trigger: GeoCycle["trigger"]): Promise<GeoCycl
       cycle.articles.push(article.slug);
       cycle.publishResults.push(...results);
     }
+  } catch (err) {
+    cycle.error = err instanceof Error ? err.message.slice(0, 500) : String(err);
+    console.error("[geo] cycle failed:", err);
+  }
 
-    // Step 4: GA4 signal check
+  // Step 4: migrate legacy home-page backlinks to deep landing pages.
+  try {
+    const backfill = await backfillArticleLinks(state);
+    if (backfill.attempted > 0) {
+      console.log(
+        `[geo] backfilled ${backfill.repointed}/${backfill.attempted} article links, ${backfill.remaining} remaining`,
+      );
+    }
+  } catch (err) {
+    console.error("[geo] link backfill failed:", err);
+  }
+
+  // Step 5: re-check published articles for unsupported claims and rewrite
+  // them in place. A prompt rule is a request; this is the enforcement.
+  try {
+    cycle.integrity = await runIntegritySweep(state);
+    if (cycle.integrity.flagged > 0) {
+      console.log(
+        `[geo] integrity: ${cycle.integrity.flagged} flagged, ${cycle.integrity.repaired} repaired, ` +
+          `${cycle.integrity.unrepaired.length} still failing`,
+      );
+    }
+  } catch (err) {
+    console.error("[geo] integrity sweep failed:", err);
+  }
+
+  // Step 6: effect measurement.
+  const cycleIndex = state.cycles.length;
+  const [citation, liveness] = await Promise.all([
+    runCitationCheck(cycleIndex).catch((err) => {
+      console.error("[geo] citation check failed:", err);
+      return null;
+    }),
+    runLivenessCheck(state, cycleIndex).catch((err) => {
+      console.error("[geo] liveness check failed:", err);
+      return null;
+    }),
+  ]);
+  cycle.effect = { citation, liveness };
+  if (citation) state.citationHistory.push(citation);
+  if (liveness && liveness.totalCount > 0) state.livenessHistory.push(liveness);
+
+  // Step 7: GA4 signal check.
+  try {
     cycle.signalCheck = await checkGeoSignals();
     if (cycle.signalCheck.signals.length) {
       state.signalHistory.push(cycle.signalCheck);
@@ -71,8 +127,7 @@ export async function runGeoCycle(trigger: GeoCycle["trigger"]): Promise<GeoCycl
       state.signalHistory.push(cycle.signalCheck);
     }
   } catch (err) {
-    cycle.error = err instanceof Error ? err.message.slice(0, 500) : String(err);
-    console.error("[geo] cycle failed:", err);
+    console.error("[geo] signal check failed:", err);
   }
 
   cycle.durationMs = Date.now() - start;

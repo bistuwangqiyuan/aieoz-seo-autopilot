@@ -120,9 +120,18 @@ function assembleArtifacts(
   };
 }
 
+/**
+ * Pages described in full to the model. Coverage rotates through dozens of
+ * URLs per run, but the recommendations are anchored on the commercial core —
+ * sending 4 KB of body text for all of them would cost far more tokens while
+ * diluting the signal the model actually needs.
+ */
+const DETAILED_CONTEXT_PAGES = 6;
+
 function buildContext(pages: PageAudit[], site: SiteSignals, gaps: string[]): string {
   const lines: string[] = [];
-  for (const p of pages) {
+
+  for (const p of pages.slice(0, DETAILED_CONTEXT_PAGES)) {
     if (!p.ok) {
       lines.push(`- 页面 ${p.url} 抓取失败：${p.error}`);
       continue;
@@ -142,11 +151,45 @@ function buildContext(pages: PageAudit[], site: SiteSignals, gaps: string[]): st
       ].join("\n"),
     );
   }
+
+  const rest = pages.slice(DETAILED_CONTEXT_PAGES);
+  if (rest.length > 0) {
+    lines.push(`\n本轮轮转审计的其余 ${rest.length} 个页面（仅摘要）:`);
+    for (const p of rest) {
+      lines.push(
+        p.ok
+          ? `  - ${p.url} 得分 ${p.score}/100，标题「${p.signals.title ?? "(无)"}」，正文 ${p.signals.wordCount} 字`
+          : `  - ${p.url} 抓取失败：${p.error}`,
+      );
+    }
+  }
+
   lines.push(
-    `站点信号: robots.txt=${site.robotsTxt.present ? "有" : "无"}，sitemap.xml=${
+    `\n站点信号: robots.txt=${site.robotsTxt.present ? "有" : "无"}，sitemap.xml=${
       site.sitemapXml.present ? `有(${site.sitemapXml.urlCount}条)` : "无/不可访问（重点检查：官网 sitemap 为数据库动态生成，返回失败通常意味着 DATABASE_URL 或 Neon 数据库异常）"
     }`,
   );
+
+  const cross = site.crossPage;
+  if (cross) {
+    lines.push(
+      `\n跨页检查（单页审计看不到的问题）:`,
+      `  审计覆盖: ${cross.auditedUrls}/${cross.sitemapUrls} 个 URL 已至少审计过一次`,
+      `  canonical 非自指: ${cross.canonicalIssues.length} 处` +
+        (cross.canonicalIssues.length
+          ? `，例如 ${cross.canonicalIssues.slice(0, 3).map((c) => `${c.url} -> ${c.canonical ?? "(缺失)"}`).join("；")}`
+          : ""),
+      `  hreflang 问题: ${cross.hreflangIssues.length} 处` +
+        (cross.hreflangIssues.length
+          ? `，例如 ${cross.hreflangIssues.slice(0, 3).map((h) => `${h.url}（${h.detail}）`).join("；")}`
+          : ""),
+      `  sitemap 抽样不可达: ${cross.deadSitemapUrls.length} 条` +
+        (cross.deadSitemapUrls.length
+          ? `，例如 ${cross.deadSitemapUrls.slice(0, 3).map((d) => `${d.url} HTTP ${d.status}`).join("；")}`
+          : ""),
+    );
+  }
+
   lines.push("\n待改进项（gap）:");
   lines.push(gaps.slice(0, 40).map((g) => `  - ${g}`).join("\n") || "  - 无明显缺口，可做增强优化");
   return lines.join("\n");

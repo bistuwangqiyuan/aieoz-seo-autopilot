@@ -1,7 +1,8 @@
 import { z } from "zod";
 import { getGeoConfig, hasAiKey } from "@/lib/config";
 import { generateObjectWithFallback } from "@/lib/ai/client";
-import type { GeoKeyword, GeoState } from "@/lib/types";
+import { getSiteMap } from "@/lib/site/map";
+import type { GeoKeyword, GeoState, SitePage } from "@/lib/types";
 
 const keywordSchema = z.object({
   keywords: z
@@ -107,6 +108,66 @@ function normalize(keyword: string): string {
   return keyword.toLowerCase().replace(/\s+/g, " ").trim();
 }
 
+const DEDUPE_STOPWORDS = new Set([
+  "a", "an", "and", "are", "as", "at", "be", "best", "but", "by", "can", "do", "does", "for", "from",
+  "how", "in", "is", "it", "of", "on", "or", "should", "so", "that", "the", "to", "use", "using",
+  "vs", "what", "when", "which", "why", "will", "with", "you", "your",
+]);
+
+function contentTokens(keyword: string): Set<string> {
+  return new Set(
+    keyword
+      .toLowerCase()
+      .split(/[^a-z0-9]+/)
+      .filter((t) => t.length > 1 && !DEDUPE_STOPWORDS.has(t)),
+  );
+}
+
+/**
+ * Overlap coefficient rather than Jaccard: a short rephrase that is a strict
+ * subset of an existing keyword ("kv cache offload vs recompute" inside
+ * "offload llm kv cache to external nvme storage vs recompute") scores 1.0
+ * here but only ~0.4 under Jaccard, and it is exactly the case we must catch.
+ */
+function overlap(a: Set<string>, b: Set<string>): number {
+  const smaller = a.size <= b.size ? a : b;
+  const larger = a.size <= b.size ? b : a;
+  if (smaller.size === 0) return 0;
+  let shared = 0;
+  for (const t of smaller) if (larger.has(t)) shared += 1;
+  return shared / smaller.size;
+}
+
+const SIMILARITY_LIMIT = 0.7;
+/** Below this many content words, overlap is too noisy to judge duplication. */
+const MIN_TOKENS_FOR_DEDUPE = 3;
+
+/**
+ * True when the candidate says the same thing as something already in the
+ * pool. Exact-string dedupe alone lets the model refill the queue with
+ * reworded copies of keywords we have already published against.
+ */
+function isNearDuplicate(candidate: string, existingTokens: Set<string>[]): boolean {
+  const tokens = contentTokens(candidate);
+  if (tokens.size < MIN_TOKENS_FOR_DEDUPE) return false;
+  return existingTokens.some(
+    (prev) => prev.size >= MIN_TOKENS_FOR_DEDUPE && overlap(tokens, prev) >= SIMILARITY_LIMIT,
+  );
+}
+
+/** Same rule as the mining loop, exposed so it can be tested without network or AI. */
+export function isDuplicateOf(candidate: string, existing: string[]): boolean {
+  return isNearDuplicate(normalize(candidate), existing.map((k) => contentTokens(normalize(k))));
+}
+
+/**
+ * Report IDs (R1-R9) identify specific signed joint-test reports. The mining
+ * model has no reliable way to know which ID covers which measurement, and a
+ * keyword that bakes in the wrong pairing would make the whole article wrong —
+ * the writer, which does have the verified mapping, must choose the citation.
+ */
+const ASSERTS_REPORT_ID = /\br[1-9]\b/i;
+
 /**
  * Step 1: top up the keyword pool so at least `minPendingKeywords` pending
  * entries exist. Mutates `state.keywords` (dedup by normalized keyword).
@@ -119,17 +180,25 @@ export async function mineKeywords(state: GeoState): Promise<string[]> {
   if (needed <= 0) return [];
 
   const existing = new Set(state.keywords.map((k) => normalize(k.keyword)));
+  const existingTokens = [...existing].map(contentTokens);
   const now = new Date().toISOString();
   const added: string[] = [];
 
-  const candidates = hasAiKey()
-    ? await mineWithAi(existing, needed)
-    : SEED_KEYWORDS;
+  const candidates = hasAiKey() ? await mineWithAi(existing, needed) : SEED_KEYWORDS;
 
   for (const c of candidates) {
     const norm = normalize(c.keyword);
     if (!norm || existing.has(norm)) continue;
+    if (isNearDuplicate(norm, existingTokens)) {
+      console.warn(`[geo/keywords] dropped near-duplicate: ${norm}`);
+      continue;
+    }
+    if (ASSERTS_REPORT_ID.test(norm)) {
+      console.warn(`[geo/keywords] dropped keyword asserting a report ID: ${norm}`);
+      continue;
+    }
     existing.add(norm);
+    existingTokens.push(contentTokens(norm));
     state.keywords.push({
       keyword: norm,
       intent: c.intent,
@@ -145,12 +214,29 @@ export async function mineKeywords(state: GeoState): Promise<string[]> {
   return added;
 }
 
+/** Compact inventory of the site's evergreen English pages, grouped by section. */
+function describeLandingPages(pages: SitePage[]): string {
+  const byKind = new Map<string, string[]>();
+  for (const p of pages) {
+    if (p.lang !== "en") continue;
+    if (p.kind !== "topic" && p.kind !== "compare" && p.kind !== "scenario") continue;
+    const list = byKind.get(p.kind) ?? [];
+    list.push(p.slug);
+    byKind.set(p.kind, list);
+  }
+  if (byKind.size === 0) return "";
+  return [...byKind]
+    .map(([kind, slugs]) => `${kind} pages: ${slugs.sort().join(", ")}`)
+    .join("\n");
+}
+
 async function mineWithAi(
   existing: Set<string>,
   needed: number,
 ): Promise<Omit<GeoKeyword, "status" | "createdAt">[]> {
   const cfg = getGeoConfig();
   const existingList = [...existing].slice(-60).join("\n- ");
+  const landingPages = describeLandingPages((await getSiteMap()).pages);
 
   try {
     const { object } = await generateObjectWithFallback({
@@ -163,10 +249,19 @@ async function mineWithAi(
       prompt:
         `Product context:\n${cfg.productContext}\n\n` +
         `Target market:\n${cfg.targetMarket}\n\n` +
-        `Already-mined keywords (do NOT repeat or trivially rephrase):\n- ${existingList || "(none)"}\n\n` +
+        (landingPages
+          ? `The vendor's own site already has these evergreen English landing pages:\n${landingPages}\n\n` +
+            `Each off-site article we publish deep-links to whichever of these pages best answers it, so the ` +
+            `most valuable keyword is one that (a) maps cleanly onto one of those pages, and (b) is phrased ` +
+            `the way a buyer actually asks an AI assistant — a real problem statement, not a restatement of ` +
+            `the page's own title. Do NOT simply convert a slug into a question.\n\n`
+          : "") +
+        `Already-mined keywords (do NOT repeat, and do NOT reword them — a query that shares most of its ` +
+        `meaningful words with one of these will be discarded):\n- ${existingList || "(none)"}\n\n` +
         `Mine at least ${Math.max(needed, 5)} NEW long-tail question keywords. Favor: vendor-selection ` +
         "('best X supplier/vendor for Y'), comparisons ('A vs B for C'), sizing/spec questions, and " +
-        "troubleshooting long-tails. All in English.",
+        "troubleshooting long-tails. All in English. Never put a benchmark report ID (R1-R9) in a " +
+        "keyword — you do not know which report covers which measurement.",
     });
     return object.keywords;
   } catch (err) {

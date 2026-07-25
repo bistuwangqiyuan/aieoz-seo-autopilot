@@ -1,35 +1,42 @@
 import { marked } from "marked";
 import * as cheerio from "cheerio";
 import type { AnyNode } from "domhandler";
-import { USER_AGENT } from "@/lib/config";
+import { getTargetOrigin, USER_AGENT } from "@/lib/config";
 import type { GeoArticle, GeoState, PublishResult } from "@/lib/types";
 
 const API = "https://api.telegra.ph";
+const AUTHOR_NAME = "Mingxin Technology Engineering";
 
 /**
  * Publish via the anonymous Telegraph API. Creates a reusable account token on
  * first run and stores it in GeoState.
+ *
+ * `originNote` is set when the same article is also on a higher-authority
+ * platform, so this copy declares where it was first published instead of
+ * competing with it as duplicate content.
  */
 export async function publishToTelegraph(
   article: GeoArticle,
   state: GeoState,
+  originNote?: string,
 ): Promise<PublishResult> {
   try {
+    const authorUrl = `${getTargetOrigin()}/en`;
     if (!state.telegraphToken) {
       const created = await tgRequest<{ access_token: string }>("createAccount", {
         short_name: "mingxin",
-        author_name: "Mingxin Technology Engineering",
-        author_url: "https://mingxinstorage.xyz/en",
+        author_name: AUTHOR_NAME,
+        author_url: authorUrl,
       });
       state.telegraphToken = created.access_token;
     }
 
-    const content = markdownToTelegraphNodes(article.markdown, article.referenceUrl);
+    const content = markdownToTelegraphNodes(article.markdown, article.referenceUrl, originNote);
     const page = await tgRequest<{ url: string }>("createPage", {
       access_token: state.telegraphToken,
       title: article.title.slice(0, 250),
-      author_name: "Mingxin Technology Engineering",
-      author_url: "https://mingxinstorage.xyz/en",
+      author_name: AUTHOR_NAME,
+      author_url: authorUrl,
       content: JSON.stringify(content),
       return_content: false,
     });
@@ -42,6 +49,26 @@ export async function publishToTelegraph(
       detail: err instanceof Error ? err.message.slice(0, 200) : String(err),
     };
   }
+}
+
+/** Rewrite an already-published Telegraph page (used to repoint stale backlinks). */
+export async function editTelegraphPage(
+  accessToken: string,
+  pageUrl: string,
+  title: string,
+  markdown: string,
+  referenceUrl: string,
+): Promise<void> {
+  const path = new URL(pageUrl).pathname.replace(/^\//, "");
+  await tgRequest("editPage", {
+    access_token: accessToken,
+    path,
+    title: title.slice(0, 250),
+    author_name: AUTHOR_NAME,
+    author_url: `${getTargetOrigin()}/en`,
+    content: JSON.stringify(markdownToTelegraphNodes(markdown, referenceUrl)),
+    return_content: false,
+  });
 }
 
 async function tgRequest<T>(method: string, params: Record<string, unknown>): Promise<T> {
@@ -61,7 +88,11 @@ async function tgRequest<T>(method: string, params: Record<string, unknown>): Pr
 type TgNode = string | { tag: string; attrs?: Record<string, string>; children?: TgNode[] };
 
 /** Telegraph accepts a limited node set; convert markdown -> sanitized node tree. */
-export function markdownToTelegraphNodes(markdown: string, referenceUrl: string): TgNode[] {
+export function markdownToTelegraphNodes(
+  markdown: string,
+  referenceUrl: string,
+  originNote?: string,
+): TgNode[] {
   const html = marked.parse(markdown, { async: false }) as string;
   const $ = cheerio.load(`<div id="root">${html}</div>`);
 
@@ -113,13 +144,25 @@ export function markdownToTelegraphNodes(markdown: string, referenceUrl: string)
       return r === null ? [] : Array.isArray(r) ? r : [r];
     });
 
+  // Telegraph has no rel=canonical, so state the original publication in the
+  // body — search engines and readers both need to know which copy is primary.
+  if (originNote) {
+    nodes.unshift({
+      tag: "p",
+      children: [
+        { tag: "em", children: ["Originally published on "] },
+        { tag: "a", attrs: { href: originNote }, children: [originNote] },
+      ],
+    });
+  }
+
   const footerUrl = referenceUrl.includes("utm_source=")
     ? referenceUrl
     : `${referenceUrl}?utm_source=telegraph&utm_medium=referral&utm_campaign=geo`;
   nodes.push({
     tag: "p",
     children: [
-      "Signed benchmark reports (R1\u2013R9) and product details: ",
+      "More on this topic: ",
       { tag: "a", attrs: { href: footerUrl }, children: [footerUrl] },
     ],
   });

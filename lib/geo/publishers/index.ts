@@ -10,15 +10,21 @@ import { publishToReddit } from "@/lib/geo/publishers/reddit";
  * Also enqueues Medium/Quora ready-to-paste drafts into the state.
  * Nothing is written to the official site itself; every variant links back to
  * it (with per-platform UTM) instead.
+ *
+ * Dev.to goes first and alone: it is the highest-authority destination, so it
+ * is the primary publication, and the other copies declare it as their origin
+ * rather than competing with it as anonymous duplicates.
  */
 export async function distributeArticle(
   article: GeoArticle,
   state: GeoState,
 ): Promise<PublishResult[]> {
-  const [devto, hashnode, telegraph, reddit] = await Promise.all([
-    publishToDevto(article),
-    publishToHashnode(article),
-    publishToTelegraph(article, state),
+  const devto = await publishToDevto(article);
+  const originUrl = devto.status === "published" ? devto.url : undefined;
+
+  const [hashnode, telegraph, reddit] = await Promise.all([
+    publishToHashnode(article, originUrl),
+    publishToTelegraph(article, state, originUrl),
     publishToReddit(article),
   ]);
   const results: PublishResult[] = [devto, hashnode, telegraph, reddit];
@@ -38,7 +44,7 @@ export function buildDrafts(article: GeoArticle): GeoDraft[] {
       title: article.title,
       content:
         `${article.markdown}\n\n---\n\n` +
-        `*Benchmark reports (R1–R9) and product details: [${article.referenceUrl}](${article.referenceUrl}` +
+        `*More on this topic: [${article.referenceUrl}](${article.referenceUrl}` +
         `?utm_source=medium&utm_medium=referral&utm_campaign=geo).*`,
       createdAt: now,
     },

@@ -25,6 +25,13 @@ interface Provider {
   id: string;
   kind: "gateway" | "compat";
   model: LanguageModel;
+  /**
+   * Output-token ceiling. A full article package (1200+ word body plus Quora
+   * and Reddit variants, JSON-escaped) runs to roughly 3.5k tokens, so a tight
+   * budget makes the model silently self-truncate the body to fit rather than
+   * fail — which is why this is per-provider instead of one safe-for-all value.
+   */
+  maxOutputTokens: number;
 }
 
 function env(name: string): string {
@@ -44,7 +51,12 @@ export function getProviderChain(): Provider[] {
 
   if (env("AI_GATEWAY_API_KEY")) {
     // Plain string model ids route through the Vercel AI Gateway.
-    chain.push({ id: getModelId(), kind: "gateway", model: getModelId() as unknown as LanguageModel });
+    chain.push({
+      id: getModelId(),
+      kind: "gateway",
+      model: getModelId() as unknown as LanguageModel,
+      maxOutputTokens: 8000,
+    });
   }
   if (env("DEEPSEEK_API_KEY")) {
     chain.push({
@@ -56,6 +68,7 @@ export function getProviderChain(): Provider[] {
         apiKey: env("DEEPSEEK_API_KEY"),
         model: "deepseek-chat",
       }),
+      maxOutputTokens: 8000,
     });
   }
   if (env("TONGYI_API_KEY")) {
@@ -68,6 +81,7 @@ export function getProviderChain(): Provider[] {
         apiKey: env("TONGYI_API_KEY"),
         model: "qwen-plus",
       }),
+      maxOutputTokens: 8000,
     });
   }
   if (env("GLM_API_KEY")) {
@@ -80,6 +94,8 @@ export function getProviderChain(): Provider[] {
         apiKey: env("GLM_API_KEY"),
         model: "glm-4-flash",
       }),
+      // glm-4-flash rejects requests above ~4k output tokens.
+      maxOutputTokens: 4000,
     });
   }
   if (env("MOONSHOT_API_KEY")) {
@@ -92,6 +108,7 @@ export function getProviderChain(): Provider[] {
         apiKey: env("MOONSHOT_API_KEY"),
         model: "kimi-k3",
       }),
+      maxOutputTokens: 8000,
     });
   }
 
@@ -109,6 +126,41 @@ export function describeProviderChain(): string {
   if (chain.length === 0) return "未配置";
   const extra = chain.length - 1;
   return extra > 0 ? `${chain[0].id} +${extra} 备用` : chain[0].id;
+}
+
+/**
+ * Ask every configured provider the same question and return each answer.
+ *
+ * Unlike generateObjectWithFallback this does NOT stop at the first success —
+ * the point is to sample the whole panel, which is what makes an AI-citation
+ * measurement meaningful rather than a single vendor's opinion.
+ */
+export async function probeAllProviders(
+  system: string,
+  prompt: string,
+  timeoutMs = 30_000,
+): Promise<{ model: string; text: string | null; error?: string }[]> {
+  const chain = getProviderChain();
+  return Promise.all(
+    chain.map(async (provider) => {
+      try {
+        const { text } = await generateText({
+          model: provider.model,
+          system,
+          prompt,
+          maxOutputTokens: 700,
+          abortSignal: AbortSignal.timeout(timeoutMs),
+        });
+        return { model: provider.id, text };
+      } catch (err) {
+        return {
+          model: provider.id,
+          text: null,
+          error: err instanceof Error ? err.message.slice(0, 150) : String(err).slice(0, 150),
+        };
+      }
+    }),
+  );
 }
 
 /** Pull the first JSON object out of a completion (fences/commentary tolerated). */
@@ -132,9 +184,11 @@ interface GenerateOpts<SCHEMA extends z.ZodTypeAny> {
 const COMPAT_TIMEOUT_MS = 100_000;
 
 async function generateViaCompat<SCHEMA extends z.ZodTypeAny>(
-  model: LanguageModel,
+  provider: Provider,
   opts: GenerateOpts<SCHEMA>,
 ): Promise<z.infer<SCHEMA>> {
+  const model = provider.model;
+  const maxOutputTokens = provider.maxOutputTokens;
   const schemaJson = JSON.stringify(zodSchema(opts.schema).jsonSchema);
   const basePrompt =
     `${opts.prompt}\n\n` +
@@ -146,9 +200,7 @@ async function generateViaCompat<SCHEMA extends z.ZodTypeAny>(
     model,
     system: opts.system,
     prompt: basePrompt,
-    // Large enough for the biggest artifact JSON, small enough to be accepted
-    // by every provider in the chain (GLM caps output at ~4k tokens).
-    maxOutputTokens: 4000,
+    maxOutputTokens,
     abortSignal: AbortSignal.timeout(COMPAT_TIMEOUT_MS),
   });
   const raw = extractJson(text);
@@ -168,7 +220,7 @@ async function generateViaCompat<SCHEMA extends z.ZodTypeAny>(
     model,
     system: opts.system,
     prompt: `${basePrompt}\n\nYour previous response was:\n${raw.slice(0, 8000)}\n\n${problem}\n\nReturn the corrected JSON object only.`,
-    maxOutputTokens: 4000,
+    maxOutputTokens,
     abortSignal: AbortSignal.timeout(COMPAT_TIMEOUT_MS),
   });
   return opts.schema.parse(JSON.parse(extractJson(repaired)));
@@ -196,9 +248,10 @@ export async function generateObjectWithFallback<SCHEMA extends z.ZodTypeAny>(
                 schema: opts.schema,
                 system: opts.system,
                 prompt: opts.prompt,
+                maxOutputTokens: provider.maxOutputTokens,
               })
             ).object
-          : await generateViaCompat(provider.model, opts);
+          : await generateViaCompat(provider, opts);
       if (failures.length > 0) {
         console.warn(`[ai/client] fell back to ${provider.id} after: ${failures.join(" | ")}`);
       }

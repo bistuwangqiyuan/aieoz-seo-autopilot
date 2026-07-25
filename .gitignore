@@ -30,3 +30,7 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 .env*
+
+# local script scratch output
+/tmp
+/out-*.txt

@@ -7,8 +7,10 @@ import { CategoryBreakdown } from "@/components/category-breakdown";
 import { CopyBlock } from "@/components/artifact-card";
 import { RunNowButton } from "@/components/run-now-button";
 import { GeoPanel } from "@/components/geo-panel";
+import { EffectPanel } from "@/components/effect-panel";
+import { CoveragePanel } from "@/components/coverage-panel";
 import { impactBadge, scoreTone, timeAgo } from "@/lib/format";
-import type { HistoryPoint, Snapshot } from "@/lib/types";
+import type { HistoryPoint, PageAudit, Snapshot } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -58,6 +60,10 @@ export default async function DashboardPage() {
         <GeoPanel state={geoState} />
       </div>
 
+      <div className="mt-6">
+        <EffectPanel state={geoState} />
+      </div>
+
       <Footer targets={targets} />
     </main>
   );
@@ -89,7 +95,7 @@ function Header({ aiOn, model, storage }: { aiOn: boolean; model: string; storag
       </div>
 
       <div className="mt-5 flex flex-wrap gap-2">
-        <Chip label="自动调度" value="每 4 小时 (GitHub Actions + Vercel Cron)" />
+        <Chip label="自动调度" value="GitHub Actions 每 4 小时 · Vercel Cron 每日 2 次兜底" />
         <Chip label="下次运行" value={`约 ${nextRunLabel()}`} />
         <Chip label="AI 引擎" value={aiOn ? model : "未配置密钥 (启发式)"} tone={aiOn ? "ok" : "warn"} />
         <Chip
@@ -102,10 +108,28 @@ function Header({ aiOn, model, storage }: { aiOn: boolean; model: string; storag
   );
 }
 
+/** Pages shown as full category cards; the rest go into the compact table. */
+const DETAIL_PAGE_CARDS = 6;
+
+/** The lowest-scoring failing check on a page, for the compact table. */
+function topGap(page: PageAudit): string {
+  if (!page.ok) return page.error ?? "无法抓取";
+  const failing = page.categories
+    .flatMap((c) => c.checks)
+    .filter((c) => c.status !== "pass")
+    .sort((a, b) => b.max - a.max - (b.score - a.score));
+  if (failing.length === 0) return "无";
+  return `${failing[0].label}${failing.length > 1 ? ` 等 ${failing.length} 项` : ""}`;
+}
+
 function Dashboard({ latest, history }: { latest: Snapshot; history: HistoryPoint[] }) {
   const tone = scoreTone(latest.score);
   const a = latest.artifacts;
   const site = latest.site;
+  const detailPages = latest.pages.slice(0, DETAIL_PAGE_CARDS);
+  const rotatedPages = latest.pages
+    .slice(DETAIL_PAGE_CARDS)
+    .sort((x, y) => Number(x.ok) - Number(y.ok) || x.score - y.score);
 
   return (
     <div className="space-y-6">
@@ -165,9 +189,12 @@ function Dashboard({ latest, history }: { latest: Snapshot; history: HistoryPoin
         </div>
       </section>
 
-      {/* Per-page breakdown */}
+      {site.crossPage && <CoveragePanel cross={site.crossPage} />}
+
+      {/* Per-page breakdown: full detail for the core pages, a compact score
+          table for the rotated remainder (a run can cover dozens of URLs). */}
       <section className="grid gap-6 md:grid-cols-2">
-        {latest.pages.map((page) => (
+        {detailPages.map((page) => (
           <div key={page.url} className="glass rounded-2xl p-5">
             <div className="mb-4 flex items-center justify-between gap-2">
               <a
@@ -189,6 +216,51 @@ function Dashboard({ latest, history }: { latest: Snapshot; history: HistoryPoin
           </div>
         ))}
       </section>
+
+      {rotatedPages.length > 0 && (
+        <section className="glass rounded-2xl p-5">
+          <h2 className="mb-1 text-sm font-semibold text-white/80">本轮轮转审计的其余页面</h2>
+          <p className="mb-3 text-xs text-white/45">
+            按「最久未审优先」选出，共 {rotatedPages.length} 页；得分最低的排在前面。
+          </p>
+          <div className="max-h-96 overflow-y-auto">
+            <table className="w-full text-left text-xs">
+              <thead className="sticky top-0 bg-[#0b0d12]">
+                <tr className="border-b border-edge/60 text-white/40">
+                  <th className="py-1.5 pr-3 font-medium">页面</th>
+                  <th className="py-1.5 pr-3 text-right font-medium">得分</th>
+                  <th className="py-1.5 font-medium">主要缺口</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rotatedPages.map((page) => (
+                  <tr key={page.url} className="border-b border-edge/30">
+                    <td className="max-w-xs py-1.5 pr-3">
+                      <a
+                        href={page.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="block truncate text-accent hover:underline"
+                        title={page.url}
+                      >
+                        {page.url.replace(/^https?:\/\/[^/]+/, "")}
+                      </a>
+                    </td>
+                    <td
+                      className={`py-1.5 pr-3 text-right tabular-nums ${
+                        !page.ok ? "text-bad" : page.score >= 80 ? "text-ok" : page.score >= 60 ? "text-warn" : "text-bad"
+                      }`}
+                    >
+                      {page.ok ? page.score : "抓取失败"}
+                    </td>
+                    <td className="py-1.5 text-white/50">{topGap(page)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
 
       {/* Fix recommendations */}
       {a.actions.length > 0 && (
@@ -318,7 +390,10 @@ function Footer({ targets }: { targets: string[] }) {
       <p>
         Mingxin SEO/GEO Autopilot · 外部独立审计 + 海外 GEO 分发 · 目标：{targets.map((t) => t.replace(/^https?:\/\//, "")).join(" / ")}
       </p>
-      <p className="mt-1">由 GitHub Actions + Vercel Cron + AI Gateway + Blob 驱动 · 所有运营均由 AI 自动完成</p>
+      <p className="mt-1">
+        由 GitHub Actions（每 4 小时）+ Vercel Cron（每日 2 次兜底）+ 多 provider AI 备援链 + Neon Postgres 驱动 ·
+        所有运营均由 AI 自动完成
+      </p>
     </footer>
   );
 }

@@ -3,8 +3,17 @@ import type { GeoArticle, PublishResult } from "@/lib/types";
 
 const GQL_ENDPOINT = "https://gql.hashnode.com/";
 
-/** Publish via the official Hashnode GraphQL API (publishPost mutation). */
-export async function publishToHashnode(article: GeoArticle): Promise<PublishResult> {
+/**
+ * Publish via the official Hashnode GraphQL API (publishPost mutation).
+ *
+ * When `originUrl` is given the post is marked as a cross-post of it, so
+ * Hashnode emits rel=canonical to the original instead of the two copies
+ * splitting authority.
+ */
+export async function publishToHashnode(
+  article: GeoArticle,
+  originUrl?: string,
+): Promise<PublishResult> {
   const { hashnodePat, hashnodePublicationId } = getGeoConfig();
   if (!hashnodePat || !hashnodePublicationId) {
     return {
@@ -38,6 +47,7 @@ mutation PublishPost($input: PublishPostInput!) {
             contentMarkdown: article.markdown,
             tags: article.tags.slice(0, 5).map((t) => ({ slug: t, name: t })),
             subtitle: article.description.slice(0, 250),
+            ...(originUrl ? { originalArticleURL: originUrl } : {}),
           },
         },
       }),

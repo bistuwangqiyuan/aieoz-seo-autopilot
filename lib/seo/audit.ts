@@ -337,6 +337,30 @@ export async function auditUrl(url: string, site: SiteSignals): Promise<PageAudi
   };
 }
 
+/**
+ * Simultaneous page fetches. Coverage now rotates through dozens of URLs per
+ * run, and firing them all at once would look like a burst of scraping to the
+ * origin — this keeps the crawl polite while still finishing in seconds.
+ */
+const CRAWL_CONCURRENCY = 5;
+
+/** Run `task` over `items`, at most `limit` in flight, preserving input order. */
+async function mapLimit<T, R>(items: T[], limit: number, task: (item: T) => Promise<R>): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let next = 0;
+
+  async function worker() {
+    while (true) {
+      const index = next++;
+      if (index >= items.length) return;
+      results[index] = await task(items[index]);
+    }
+  }
+
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return results;
+}
+
 export async function auditTargets(urls: string[]): Promise<{
   pages: PageAudit[];
   site: SiteSignals;
@@ -344,7 +368,7 @@ export async function auditTargets(urls: string[]): Promise<{
 }> {
   const origin = getTargetOrigin();
   const site = await crawlSite(origin);
-  const pages = await Promise.all(urls.map((u) => auditUrl(u, site)));
+  const pages = await mapLimit(urls, CRAWL_CONCURRENCY, (u) => auditUrl(u, site));
   const okPages = pages.filter((p) => p.ok);
   const score = okPages.length
     ? Math.round(okPages.reduce((a, p) => a + p.score, 0) / okPages.length)
