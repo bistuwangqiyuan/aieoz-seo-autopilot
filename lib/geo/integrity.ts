@@ -1,9 +1,9 @@
 import { z } from "zod";
 import { generateObjectWithFallback } from "@/lib/ai/client";
 import { getGeoConfig, hasAiKey } from "@/lib/config";
-import { currentRulesVersion, findViolations } from "@/lib/geo/rules";
+import { currentRulesVersion, findArticleViolations } from "@/lib/geo/rules";
 import { editTelegraphPage } from "@/lib/geo/publishers/telegraph";
-import { ensureEvidenceLink, ensureUtmBacklink } from "@/lib/geo/writer";
+import { MIN_ARTICLE_WORDS, ensureEvidenceLink, ensureUtmBacklink, wordCount } from "@/lib/geo/writer";
 import type { GeoArticle, GeoState, IntegritySweep, IntegrityViolation } from "@/lib/types";
 
 /**
@@ -17,10 +17,19 @@ import type { GeoArticle, GeoState, IntegritySweep, IntegrityViolation } from "@
  */
 
 const repairSchema = z.object({
+  title: z
+    .string()
+    .describe("The article title, rewritten if it promises something the corrected body no longer supports"),
   markdown: z
     .string()
     .describe("The full corrected article body in Markdown, with every flagged claim removed or replaced"),
 });
+
+/** A corrected article, which may carry a corrected headline too. */
+interface Repair {
+  title: string;
+  markdown: string;
+}
 
 /** Articles re-checked per cycle; each repair costs an AI call plus a platform edit. */
 const SWEEP_BATCH = 4;
@@ -72,7 +81,7 @@ export async function runIntegritySweep(
 
   for (const article of batch) {
     sweep.checked += 1;
-    const violations = findViolations(article.markdown);
+    const violations = findArticleViolations(article.title, article.markdown);
     article.integrityCheckedAt = sweep.checkedAt;
 
     if (violations.length === 0) {
@@ -108,7 +117,8 @@ export async function runIntegritySweep(
 
     try {
       await republish(article, repaired, state);
-      article.markdown = repaired;
+      article.title = repaired.title;
+      article.markdown = repaired.markdown;
       article.integrityFlags = [];
       article.integrityRulesVersion = version;
       sweep.repaired += 1;
@@ -122,37 +132,64 @@ export async function runIntegritySweep(
 }
 
 export async function repairArticle(
-  article: Pick<GeoArticle, "markdown">,
+  article: Pick<GeoArticle, "title" | "markdown">,
   violations: IntegrityViolation[],
-): Promise<string | null> {
+): Promise<Repair | null> {
   if (!hasAiKey()) return null;
   const cfg = getGeoConfig();
 
-  const { object } = await generateObjectWithFallback({
-    schema: repairSchema,
-    system:
-      "You are a technical fact-checker correcting a published article. You may only state facts present " +
-      "in the verified product context supplied below. Remove or rewrite every flagged claim. Do not " +
-      "substitute a different invented fact for the one you remove — if the claim cannot be supported, " +
-      "delete it or replace it with an explicit statement that no published measurement covers it. " +
-      "Never invent a replacement number: express thresholds and guidance qualitatively instead. " +
-      "Preserve the article's structure, headings, comparison table, FAQ section, length, and all links.",
-    prompt:
-      `Verified product context (the ONLY facts you may assert):\n${cfg.productContext}\n\n` +
-      `Flagged claims that must not remain:\n` +
-      violations.map((v) => `- "${v.matched}" — ${v.reason}\n  context: …${v.excerpt}…`).join("\n") +
-      `\n\nArticle to correct:\n\n${article.markdown}`,
-  });
+  const system =
+    "You are a technical fact-checker correcting a published article. You may only state facts present " +
+    "in the verified product context supplied below. Remove or rewrite every flagged claim. Do not " +
+    "substitute a different invented fact for the one you remove — if the claim cannot be supported, " +
+    "delete it or replace it with an explicit statement that no published measurement covers it. " +
+    "Never invent a replacement number: express thresholds and guidance qualitatively instead. " +
+    "The title is part of the claim: if it promises a result the corrected body no longer delivers, " +
+    "rewrite it to describe what the article actually establishes. " +
+    "Preserve the article's structure, headings, comparison table, FAQ section, length, and all links.";
+  const brief =
+    `Verified product context (the ONLY facts you may assert):\n${cfg.productContext}\n\n` +
+    `Flagged claims that must not remain:\n` +
+    violations.map((v) => `- "${v.matched}" — ${v.reason}\n  context: …${v.excerpt}…`).join("\n") +
+    `\n\nTitle to check: ${article.title}\n\nArticle to correct:\n\n${article.markdown}`;
 
-  const fixed = object.markdown.trim();
+  const attempt = async (prompt: string): Promise<Repair> => {
+    const { object } = await generateObjectWithFallback({ schema: repairSchema, system, prompt });
+    return { title: object.title.trim() || article.title, markdown: object.markdown.trim() };
+  };
+
+  let fixed = await attempt(brief);
   // A repair that reintroduces a violation, or guts the article, is not a repair.
-  if (findViolations(fixed).length > 0) return null;
-  if (fixed.length < article.markdown.length * 0.6) return null;
+  if (findArticleViolations(fixed.title, fixed.markdown).length > 0) return null;
+  if (fixed.markdown.length < article.markdown.length * 0.6) return null;
+
+  // An honest correction can legitimately end up shorter than the false version
+  // it replaced. Try once to bring it back to the publication standard, but a
+  // clean short article always beats leaving the false one live — so a failed
+  // expansion must never turn into "no repair".
+  if (wordCount(fixed.markdown) < MIN_ARTICLE_WORDS) {
+    const expanded = await attempt(
+      `${brief}\n\n--- LENGTH PASS ---\nYour corrected body came to ` +
+        `${wordCount(fixed.markdown)} words; published articles must reach ${MIN_ARTICLE_WORDS}. ` +
+        `Deepen the engineering analysis, the evaluation methodology a reader could run themselves, ` +
+        `and the buyer guidance. Do NOT restore any flagged claim, invent figures, or pad with ` +
+        `marketing language — if a section cannot be extended honestly, leave it as it is.`,
+    ).catch(() => null);
+
+    if (
+      expanded &&
+      wordCount(expanded.markdown) > wordCount(fixed.markdown) &&
+      findArticleViolations(expanded.title, expanded.markdown).length === 0
+    ) {
+      fixed = expanded;
+    }
+  }
+
   return fixed;
 }
 
 /** Push the corrected text back to every platform that supports editing. */
-async function republish(article: GeoArticle, markdown: string, state: GeoState): Promise<void> {
+async function republish(article: GeoArticle, repair: Repair, state: GeoState): Promise<void> {
   const telegraph = article.publishResults.find(
     (r) => r.platform === "telegraph" && r.status === "published" && r.url,
   );
@@ -162,14 +199,14 @@ async function republish(article: GeoArticle, markdown: string, state: GeoState)
   }
 
   const withLinks = ensureEvidenceLink(
-    ensureUtmBacklink(markdown, article.referenceUrl, "geo-article"),
+    ensureUtmBacklink(repair.markdown, article.referenceUrl, "geo-article"),
     article.evidenceUrl ?? article.referenceUrl,
     "geo-article",
   );
   await editTelegraphPage(
     state.telegraphToken,
     telegraph.url,
-    article.title,
+    repair.title,
     withLinks,
     article.referenceUrl,
   );

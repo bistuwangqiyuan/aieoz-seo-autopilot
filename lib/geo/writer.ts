@@ -2,7 +2,7 @@ import { z } from "zod";
 import { getGeoConfig, hasAiKey } from "@/lib/config";
 import { generateObjectWithFallback } from "@/lib/ai/client";
 import { getEvidenceUrl, resolveLandingTarget } from "@/lib/site/landing";
-import { currentRulesVersion, findViolations } from "@/lib/geo/rules";
+import { currentRulesVersion, findArticleViolations } from "@/lib/geo/rules";
 import type { GeoArticle, GeoKeyword } from "@/lib/types";
 
 const BENCH_REPO = "https://github.com/mingxin-tech/mingxin-kvcache-bench";
@@ -99,7 +99,7 @@ export async function writeArticle(keyword: GeoKeyword): Promise<GeoArticle> {
   // pass is allowed to improve an article without fully clearing it. Only stamp
   // the ones that are actually clean, so anything short of that stays in the
   // sweep queue instead of being marked done.
-  const clean = findViolations(markdown).length === 0;
+  const clean = findArticleViolations(body.title, markdown).length === 0;
 
   return {
     slug,
@@ -121,7 +121,8 @@ export async function writeArticle(keyword: GeoKeyword): Promise<GeoArticle> {
   };
 }
 
-const MIN_WORDS = 1200;
+/** Publication length standard, applied to new articles and to repairs alike. */
+export const MIN_ARTICLE_WORDS = 1200;
 
 export function wordCount(markdown: string): number {
   return markdown.split(/\s+/).filter(Boolean).length;
@@ -133,26 +134,29 @@ export function wordCount(markdown: string): number {
  * back for one revision pass) is the difference between "we asked nicely" and
  * "every published article meets the bar".
  */
-function articleDefects(markdown: string): string[] {
+function articleDefects(markdown: string, title = ""): string[] {
   const defects: string[] = [];
 
   // Fabricated figures are the highest-severity defect and the one a model is
   // most likely to produce, so they are checked here — before publication —
-  // rather than left to the post-publication sweep to clean up.
-  const violations = findViolations(markdown);
+  // rather than left to the post-publication sweep to clean up. The title is
+  // audited with the body: it is the claim a reader and a retrieval engine see
+  // first, and it must not promise what the body cannot support.
+  const violations = findArticleViolations(title, markdown);
   if (violations.length > 0) {
     defects.push(
-      `The body contains ${violations.length} claim(s) the verified context does not support. ` +
-        `Remove each one or replace it with an explicit "no published signed benchmark covers this" — ` +
-        `do NOT swap in a different invented figure:\n` +
+      `The title and body together contain ${violations.length} claim(s) the verified context does not ` +
+        `support. Remove each one or replace it with an explicit "no published signed benchmark covers ` +
+        `this" — do NOT swap in a different invented figure. If the TITLE is what makes the claim, ` +
+        `rewrite the title so it promises only what the body delivers:\n` +
         violations.map((v) => `   • "${v.matched}" — ${v.reason}`).join("\n"),
     );
   }
 
   const words = wordCount(markdown);
-  if (words < MIN_WORDS) {
+  if (words < MIN_ARTICLE_WORDS) {
     defects.push(
-      `The markdown body is only ${words} words but must be at least ${MIN_WORDS}. Expand the ` +
+      `The markdown body is only ${words} words but must be at least ${MIN_ARTICLE_WORDS}. Expand the ` +
         `engineering-analysis and buyer-guidance sections with additional concrete detail — deepen the ` +
         `existing argument, do not pad with filler, restate points, or add marketing language.`,
     );
@@ -236,7 +240,7 @@ async function writeWithAi(
 
     const { object } = await generateObjectWithFallback({ schema: articleSchema, system, prompt });
 
-    const defects = articleDefects(object.markdown);
+    const defects = articleDefects(object.markdown, object.title);
     if (defects.length === 0) return object;
 
     console.warn(`[geo/writer] revising article for: ${defects.map((d) => d.split(".")[0]).join("; ")}`);
@@ -246,6 +250,7 @@ async function writeWithAi(
         system,
         prompt:
           `${prompt}\n\n--- REVISION PASS ---\n` +
+          `Your previous title was: ${object.title}\n` +
           `Your previous markdown body was:\n\n${object.markdown}\n\n` +
           `It must be corrected before publication:\n${defects.map((d, i) => `${i + 1}. ${d}`).join("\n")}\n\n` +
           `Return the complete package again with the corrected markdown body. Keep everything that was ` +
@@ -253,7 +258,7 @@ async function writeWithAi(
           `links — and keep obeying every integrity rule.`,
       });
       // Only accept the revision if it actually fixed something.
-      return articleDefects(revised.markdown).length < defects.length ? revised : object;
+      return articleDefects(revised.markdown, revised.title).length < defects.length ? revised : object;
     } catch (err) {
       console.error("[geo/writer] revision pass failed, keeping first draft:", err);
       return object;

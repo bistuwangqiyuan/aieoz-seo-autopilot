@@ -29,6 +29,9 @@ export async function GET(request: Request) {
   const publishedArticles = geo.articles
     .map((a) => ({
       slug: a.slug,
+      // Exposed so the live cross-check can audit the headline too, not just
+      // the body: a title can carry the whole false claim on its own.
+      title: a.title,
       aiGenerated: a.aiGenerated,
       hasReportAnchors: /\bR[1-9]\b/.test(a.markdown) || a.markdown.includes("mingxin-kvcache-bench"),
       hasUtmBacklink: a.markdown.includes("utm_source="),

@@ -5,7 +5,7 @@
  *
  *   npx tsx scripts/test-integrity.ts
  */
-import { findViolations } from "../lib/geo/rules";
+import { findArticleViolations, findViolations } from "../lib/geo/rules";
 
 /**
  * The verified fact set, pinned so this test does not drift when the runtime
@@ -102,7 +102,60 @@ for (const [expectedRule, text] of MUST_FLAG) {
   );
 }
 
-console.log("\nB. verified facts must survive untouched");
+/**
+ * A headline can carry the whole false claim while every sentence beneath it is
+ * correct. That happened: a repair credited all the figures to the FX100 and
+ * left "Comprehensive Benchmarks for Mingxin FX300" above them.
+ */
+const TITLE_CASES: [string, string, string, boolean][] = [
+  // The real case: no number in the title, every figure below it correctly
+  // credited to the FX100, and the headline still asserts something false.
+  [
+    "title-promises-unmeasured-benchmark",
+    "Comprehensive Benchmarks for Mingxin FX300 in Multi-GPU AI Environments",
+    "The FX100 sustained a 26-32% TTFT reduction on a 480B model (R2).",
+    true,
+  ],
+  [
+    "title-promises-unmeasured-benchmark",
+    "FX200 Benchmark Results: 8.6-20x Faster Cold-Context Recovery",
+    "Cold-context recovery on the FX100 is 8.6-20x faster than recomputing (R2).",
+    true,
+  ],
+  // Honest framings of the same subject must survive: a rule that made these
+  // models unmentionable would trade one distortion for another.
+  [
+    "none",
+    "What the Published FX100 Benchmarks Mean When You Are Evaluating the FX300",
+    "All R1-R9 measurements were taken on FX100; no signed benchmark covers the FX300 yet.",
+    false,
+  ],
+  [
+    "none",
+    "FX200 vs FX300: How to Choose Without Published Benchmarks",
+    "Neither model has a signed benchmark; the published measurements cover the FX100.",
+    false,
+  ],
+  [
+    "none",
+    "How to Benchmark the FX300 on Your Own Multi-GPU Cluster",
+    "Run the open-source mingxin-kvcache-bench suite yourself; no signed FX300 report exists.",
+    false,
+  ],
+];
+
+console.log("\nB. a title must not promise what the body cannot support");
+for (const [expectedRule, title, body, shouldFlag] of TITLE_CASES) {
+  const found = findArticleViolations(title, body, CONTEXT);
+  const ok = shouldFlag ? found.some((v) => v.rule === expectedRule) : found.length === 0;
+  if (!ok) failures += 1;
+  console.log(
+    `  ${ok ? "PASS" : "FAIL"}  [${shouldFlag ? expectedRule : "must pass"}] ${title.slice(0, 58)}` +
+      (ok ? "" : `  (got: ${found.map((v) => v.rule).join(",") || "nothing"})`),
+  );
+}
+
+console.log("\nC. verified facts must survive untouched");
 for (const text of MUST_PASS) {
   const found = findViolations(text, CONTEXT);
   const clean = found.length === 0;

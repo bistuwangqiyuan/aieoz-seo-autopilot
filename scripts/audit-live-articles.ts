@@ -8,12 +8,13 @@
  *
  *   npx tsx --env-file=.env.local scripts/audit-live-articles.ts
  */
-import { findViolations } from "../lib/geo/rules";
+import { findArticleViolations } from "../lib/geo/rules";
 
 const BASE = process.env.APP_URL || "https://aieoz-seo-autopilot.vercel.app";
 
 interface StatusArticle {
   slug: string;
+  title: string;
   aiGenerated: boolean;
   hasReportAnchors: boolean;
   hasUtmBacklink: boolean;
@@ -28,14 +29,25 @@ function flatten(node: TgNode): string {
   return typeof node === "string" ? node : (node.children ?? []).map(flatten).join(" ");
 }
 
-async function fetchTelegraph(url: string): Promise<string | null> {
+/**
+ * Reads the live page, including its headline as Telegraph actually serves it —
+ * which is what a reader and a retrieval engine see, and may differ from the
+ * title we have stored if an edit only partly landed.
+ */
+async function fetchTelegraph(url: string): Promise<{ title: string; text: string } | null> {
   const path = new URL(url).pathname.replace(/^\//, "");
   const res = await fetch(`https://api.telegra.ph/getPage/${path}?return_content=true`, {
     cache: "no-store",
   });
-  const data = (await res.json()) as { ok: boolean; result?: { content?: TgNode[] } };
+  const data = (await res.json()) as {
+    ok: boolean;
+    result?: { title?: string; content?: TgNode[] };
+  };
   if (!data.ok || !data.result) return null;
-  return (data.result.content ?? []).map(flatten).join(" ");
+  return {
+    title: data.result.title ?? "",
+    text: (data.result.content ?? []).map(flatten).join(" "),
+  };
 }
 
 async function main() {
@@ -71,14 +83,14 @@ async function main() {
         continue;
       }
       try {
-        const text = await fetchTelegraph(p.url);
-        if (text === null) {
+        const page = await fetchTelegraph(p.url);
+        if (page === null) {
           unreachable += 1;
           console.log(`  ${p.platform}: ${p.url} → 无法读取`);
           continue;
         }
         checked += 1;
-        const violations = findViolations(text);
+        const violations = findArticleViolations(page.title, page.text);
         if (violations.length === 0) {
           console.log(`  ${p.platform}: ${p.url} → 正文合规`);
         } else {

@@ -255,6 +255,55 @@ function findAttributionViolations(markdown: string, context: string): Integrity
   return violations;
 }
 
+/**
+ * The headline is part of the claim, and the most load-bearing part of it: a
+ * title promising "Comprehensive FX300 Benchmarks" is a misattribution even
+ * when the body underneath correctly credits every figure to the FX100. It also
+ * survives repair, because a sweep that only rewrites the body leaves the
+ * promise standing — and for a retrieval engine the title carries the most
+ * weight of anything on the page.
+ */
+export function auditText(title: string, markdown: string): string {
+  return title.trim() ? `${title.trim()}\n\n${markdown}` : markdown;
+}
+
+/**
+ * A title can make the false claim without containing a single number:
+ * "Comprehensive Benchmarks for Mingxin FX300" promises measurements that do
+ * not exist, and every sentence below it can be scrupulously correct. The
+ * sentence-level attribution check cannot see that by construction — it looks
+ * for a real figure next to the wrong model, and here the figures are all
+ * correctly credited to the FX100 one line down.
+ *
+ * So the promise itself is the violation, and it is judged at document level.
+ * Note what stays allowed: comparing these models, discussing them, or
+ * explaining how to evaluate one. Only claiming to *report measurements* of an
+ * unmeasured product is barred — a rule that made FX200/FX300 unmentionable
+ * would be its own kind of distortion.
+ */
+const PROMISES_MEASUREMENT =
+  /\b(benchmarks?|benchmarked|benchmarking|performance (results|data|numbers|figures)|test results|measured results|measurements)\b/i;
+const TITLE_HEDGE =
+  /\b(no published|not yet|unmeasured|without published|how to (evaluate|test|measure|benchmark)|what to (ask|look|expect)|evaluating|evaluation|choosing|your own|vendor spec|planned|roadmap|FX100)\b/i;
+
+export function findTitleViolations(title: string): IntegrityViolation[] {
+  const models = [...title.matchAll(UNMEASURED_MODELS)].map((m) => m[0]);
+  if (models.length === 0) return [];
+  if (!PROMISES_MEASUREMENT.test(title) || TITLE_HEDGE.test(title)) return [];
+
+  return [
+    {
+      rule: "title-promises-unmeasured-benchmark",
+      matched: title,
+      reason:
+        `标题承诺提供 ${models[0]} 的实测数据，而 R1–R9 全部以 FX100 为被测设备、${models[0]} 没有任何公开实测。` +
+        `标题不含数字，所以逐句校验抓不到它——正文可以句句正确，标题却已经把结论说错了；` +
+        `对检索引擎而言标题是权重最高的信号，改正文不改标题等于没改`,
+      excerpt: title,
+    },
+  ];
+}
+
 /* ---------- Rule-set versioning ---------- */
 
 /**
@@ -278,9 +327,21 @@ function fnv1a(input: string): string {
   return hash.toString(16).padStart(8, "0");
 }
 
+/**
+ * Bump when the checking *logic* changes in a way the patterns below do not
+ * capture — widening what gets audited, changing how sentences are split, etc.
+ * Without this, a change like "audit the title too" would leave every existing
+ * article stamped as compliant and its title never examined: the same blind
+ * spot the versioning exists to remove, wearing a different hat.
+ *
+ * 2: titles are audited together with the body.
+ */
+const AUDIT_REVISION = 2;
+
 /** Identifies what "compliant" currently means, for staleness comparison. */
 export function currentRulesVersion(context?: string): string {
   const surface = [
+    `audit-revision:${AUDIT_REVISION}`,
     ...RULES.map((r) => `${r.id}|${r.pattern.source}`),
     METRIC_PATTERN.source,
     SECONDS_PATTERN.source,
@@ -289,6 +350,8 @@ export function currentRulesVersion(context?: string): string {
     VENDOR_SPEC_FIGURES.source,
     VENDOR_SPEC_LABEL.source,
     PROVENANCE_HEDGE.source,
+    PROMISES_MEASUREMENT.source,
+    TITLE_HEDGE.source,
     // The allowlist is derived from the context, so the context is part of the
     // definition: a new verified figure legitimises text that was a violation.
     context ?? getGeoConfig().productContext,
@@ -319,4 +382,17 @@ export function findViolations(markdown: string, context?: string): IntegrityVio
   violations.push(...findNumericViolations(markdown, ctx));
   violations.push(...findAttributionViolations(markdown, ctx));
   return violations;
+}
+
+/**
+ * Everything wrong with an article, title included. Callers that have both
+ * should use this rather than assembling the checks themselves — a title rule
+ * is only worth having if it cannot be forgotten at one call site.
+ */
+export function findArticleViolations(
+  title: string,
+  markdown: string,
+  context?: string,
+): IntegrityViolation[] {
+  return [...findTitleViolations(title), ...findViolations(auditText(title, markdown), context)];
 }
