@@ -23,6 +23,9 @@ export async function runScan(trigger: Snapshot["trigger"]): Promise<Snapshot> {
   const { pages, site, score } = await auditTargets(plan.urls);
   const gaps = collectGaps(pages);
 
+  // Record before reading the coverage total: the other order reports the
+  // previous run's figure, and 0 on the first run.
+  await recordAudited(pages.filter((p) => p.ok).map((p) => p.url));
   site.crossPage = await runCrossPageChecks(pages, (await getCoverageStats()).everAudited);
 
   // The AI only needs full text for the primary pages; keeping 4 KB of body
@@ -40,8 +43,6 @@ export async function runScan(trigger: Snapshot["trigger"]): Promise<Snapshot> {
     site,
     artifacts,
   };
-
-  await recordAudited(pages.filter((p) => p.ok).map((p) => p.url));
 
   snapshot.durationMs = Date.now() - start;
   await saveSnapshot(snapshot);

@@ -74,6 +74,11 @@ export async function runGeoCycle(trigger: GeoCycle["trigger"]): Promise<GeoCycl
   // Step 4: migrate legacy home-page backlinks to deep landing pages.
   try {
     const backfill = await backfillArticleLinks(state);
+    cycle.backfill = {
+      attempted: backfill.attempted,
+      repointed: backfill.repointed,
+      remaining: backfill.remaining,
+    };
     if (backfill.attempted > 0) {
       console.log(
         `[geo] backfilled ${backfill.repointed}/${backfill.attempted} article links, ${backfill.remaining} remaining`,

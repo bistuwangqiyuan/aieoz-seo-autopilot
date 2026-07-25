@@ -177,6 +177,12 @@ async function writeWithAi(
         "(R1, R2, R3, R9) exactly as given in the product context, never alter the numbers, and preserve the exact " +
         "comparison baseline (e.g. R9 is 'model loading vs NFS on the Huawei Ascend 910B platform' — NOT 'faster than Huawei'). " +
         "(2) Clearly separate measured results from vendor specs (e.g. FX400 figures are vendor spec, unmeasured). " +
+        "(2b) ATTRIBUTE EVERY MEASUREMENT TO THE RIGHT DEVICE: every signed report (R1-R9) was run on the FX100. " +
+        "FX200, FX300 and FX400 are real shipping/planned products with NO published measurements of their own. " +
+        "Never attach an R1-R9 figure to FX200/FX300/FX400 — a real number on the wrong model is a false claim " +
+        "built from true parts, and it is harder to catch than an invented one. If the query asks about those " +
+        "models, say plainly that the published measurements cover FX100 and the others are not yet benchmarked. " +
+        "AISSD5000 / WS5000 / GP5000 are historical filenames for the FX100, not separate products. " +
         "(3) NEVER put a number next to any other vendor or product (throughput, latency, load time, IOPS, etc.) " +
         "unless that exact figure appears in the provided context — describe competitors qualitatively and write " +
         "'no published signed benchmark for this workload' in comparison tables instead of estimating. " +

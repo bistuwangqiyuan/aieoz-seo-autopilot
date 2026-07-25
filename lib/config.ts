@@ -97,7 +97,9 @@ export interface GeoConfig {
 const DEFAULT_PRODUCT_CONTEXT =
   "Mingxin Technology (铭信科技, Mingxin (Tianjin) Semiconductor Equipment Co., Ltd.) builds the FX series " +
   "of all-flash NVMe-oF storage acceleration platforms: FX100 (PCIe 3.0), FX200 (PCIe 4.0) and FX300 " +
-  "(PCIe 5.0) are shipping today; FX400 (PCIe 6.0) is planned for late 2026 (vendor spec, not yet measured). " +
+  "(PCIe 5.0) are shipping today; FX400 (PCIe 6.0, 4.8 Tb/s aggregate bandwidth, 140 million IOPS — vendor " +
+  "spec, not yet measured) is planned for late 2026. Every signed report below measures FX100; FX200, " +
+  "FX300 and FX400 have no published measurements of their own. " +
   "Headline numbers all carry signed, downloadable benchmark-report IDs (R1–R9): KV-cache tiering on a " +
   "480B-parameter model in production deployment form lifts inference throughput by 29–40% and cuts " +
   "time-to-first-token (TTFT p50) by 26–32% (reports R2/R3); versus recomputing without external storage, " +

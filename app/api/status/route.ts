@@ -38,6 +38,10 @@ export async function GET(request: Request) {
     }))
     .slice(-10);
 
+  // Backfill works oldest-first while publishedArticles shows the newest, so
+  // progress is invisible there until the migration is nearly done.
+  const deepLinked = geo.articles.filter((a) => !/\/en\/?$/.test(a.referenceUrl)).length;
+
   const citation = geo.citationHistory.at(-1) ?? null;
   const liveness = geo.livenessHistory.at(-1) ?? null;
   const cross = latest?.site.crossPage ?? null;
@@ -114,6 +118,12 @@ export async function GET(request: Request) {
       keywordList: geo.keywords.map((k) => k.keyword),
       articles: geo.articles.length,
       cycles: geo.cycles.length,
+      backlinks: {
+        total: geo.articles.length,
+        deepLinked,
+        pendingBackfill: geo.articles.filter((a) => !a.linkBackfilledAt).length,
+        lastRun: [...geo.cycles].reverse().find((c) => c.backfill)?.backfill ?? null,
+      },
       lastCycle: lastCycle
         ? {
             id: lastCycle.id,

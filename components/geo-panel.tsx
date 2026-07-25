@@ -66,6 +66,8 @@ export function GeoPanel({ state }: { state: GeoState }) {
         />
       </div>
 
+      <BacklinkMigration state={state} />
+
       {/* Step 4: signal lights */}
       <div className="mb-5">
         <h3 className="mb-2 text-xs font-semibold uppercase tracking-widest text-white/40">
@@ -284,6 +286,42 @@ const PLATFORM_NOTE: Record<PublishResult["platform"], string> = {
  * stating it once, up front, is the difference between a known gap and an
  * unnoticed one.
  */
+/**
+ * The migration of legacy home-page backlinks runs a few articles per cycle and
+ * oldest-first, so the recent-articles list below shows nothing until it is
+ * nearly finished. Without a corpus-wide counter it looks like it never ran.
+ */
+function BacklinkMigration({ state }: { state: GeoState }) {
+  const total = state.articles.length;
+  if (total === 0) return null;
+
+  const deep = state.articles.filter((a) => !/\/en\/?$/.test(a.referenceUrl)).length;
+  const pending = state.articles.filter((a) => !a.linkBackfilledAt).length;
+  const percent = Math.round((deep / total) * 100);
+  if (pending === 0 && deep === total) return null;
+
+  return (
+    <div className="mb-5 rounded-xl border border-edge/50 bg-white/[0.02] p-3">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <h3 className="text-xs font-semibold uppercase tracking-widest text-white/40">
+          回链深化进度
+        </h3>
+        <span className="text-xs text-white/60">
+          {deep}/{total} 篇已指向深层落地页（{percent}%）
+        </span>
+      </div>
+      <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-white/10">
+        <div className="h-full rounded-full bg-accent" style={{ width: `${percent}%` }} />
+      </div>
+      <p className="mt-2 text-[11px] text-white/40">
+        存量文章的回链原本全部指向首页。每轮改写 3 篇（按发布时间由早到晚），
+        经 Telegraph editPage 直接改已发布页面，还剩 {pending} 篇待处理。
+        限速是因为每篇都要重新解析落地页并调用一次编辑接口，与写稿共用同一个 300s 函数预算。
+      </p>
+    </div>
+  );
+}
+
 function PlatformReadiness({ state }: { state: GeoState }) {
   const recent = state.articles.slice(-5).flatMap((a) => a.publishResults);
   if (recent.length === 0) return null;

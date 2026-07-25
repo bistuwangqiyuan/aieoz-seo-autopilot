@@ -169,12 +169,23 @@ export function isDuplicateOf(candidate: string, existing: string[]): boolean {
 const ASSERTS_REPORT_ID = /\br[1-9]\b/i;
 
 /**
+ * A keyword can be false before a single word is written. "what benchmarks are
+ * available for fx300" presupposes benchmarks that do not exist — every signed
+ * report measures FX100 — so answering it honestly means contradicting the
+ * question, and answering it fluently means inventing data. Dropping the
+ * premise is cheaper than policing the article afterwards.
+ */
+const PRESUMES_UNMEASURED_BENCHMARK =
+  /\bfx(200|300|400)\b[^.]{0,40}\b(benchmark|performance|测试|results?|throughput|latency|iops|ttft)\b|\b(benchmark|performance|results?|throughput|latency|iops|ttft)\b[^.]{0,40}\bfx(200|300|400)\b/i;
+
+/**
  * Step 1: top up the keyword pool so at least `minPendingKeywords` pending
  * entries exist. Mutates `state.keywords` (dedup by normalized keyword).
  * Returns the list of newly added keywords.
  */
 export async function mineKeywords(state: GeoState): Promise<string[]> {
   const cfg = getGeoConfig();
+  purgeUnsound(state);
   const pending = state.keywords.filter((k) => k.status === "pending").length;
   const needed = cfg.minPendingKeywords - pending;
   if (needed <= 0) return [];
@@ -197,6 +208,10 @@ export async function mineKeywords(state: GeoState): Promise<string[]> {
       console.warn(`[geo/keywords] dropped keyword asserting a report ID: ${norm}`);
       continue;
     }
+    if (PRESUMES_UNMEASURED_BENCHMARK.test(norm)) {
+      console.warn(`[geo/keywords] dropped keyword presuming unmeasured benchmarks: ${norm}`);
+      continue;
+    }
     existing.add(norm);
     existingTokens.push(contentTokens(norm));
     state.keywords.push({
@@ -212,6 +227,25 @@ export async function mineKeywords(state: GeoState): Promise<string[]> {
   }
 
   return added;
+}
+
+/**
+ * Drop queued keywords that a later-added rule would now reject. Gating only
+ * at mining time would let keywords banked before the rule existed keep
+ * producing articles the rule was written to prevent.
+ */
+function purgeUnsound(state: GeoState): void {
+  const before = state.keywords.length;
+  state.keywords = state.keywords.filter((k) => {
+    if (k.status !== "pending") return true;
+    const unsound =
+      ASSERTS_REPORT_ID.test(k.keyword) || PRESUMES_UNMEASURED_BENCHMARK.test(k.keyword);
+    if (unsound) console.warn(`[geo/keywords] purged unsound pending keyword: ${k.keyword}`);
+    return !unsound;
+  });
+  if (state.keywords.length !== before) {
+    console.warn(`[geo/keywords] purged ${before - state.keywords.length} pending keyword(s)`);
+  }
 }
 
 /** Compact inventory of the site's evergreen English pages, grouped by section. */
@@ -261,7 +295,9 @@ async function mineWithAi(
         `Mine at least ${Math.max(needed, 5)} NEW long-tail question keywords. Favor: vendor-selection ` +
         "('best X supplier/vendor for Y'), comparisons ('A vs B for C'), sizing/spec questions, and " +
         "troubleshooting long-tails. All in English. Never put a benchmark report ID (R1-R9) in a " +
-        "keyword — you do not know which report covers which measurement.",
+        "keyword — you do not know which report covers which measurement. Every signed report measures " +
+        "FX100; FX200, FX300 and FX400 have no published performance data, so never mine a keyword that " +
+        "asks for their benchmarks, throughput, latency or IOPS — the question would have no honest answer.",
     });
     return object.keywords;
   } catch (err) {

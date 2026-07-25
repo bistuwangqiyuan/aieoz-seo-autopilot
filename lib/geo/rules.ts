@@ -66,6 +66,13 @@ const RULES: Rule[] = [
     pattern: /\b(production telemetry|internal testing|customer data) (logs? )?from \w+/i,
     reason: "除 R1–R9 联合测试报告外没有其他数据来源，虚构佐证来源比虚构数字更严重",
   },
+  {
+    id: "fx400-availability",
+    pattern:
+      /\bFX400\b[^.!?]{0,90}\b(shipping|available|in production|generally available|deployed|we (tested|measured|benchmarked)|our (tests|benchmarks) (show|found))\b|\b(shipping|in production|generally available|deployed|we (tested|measured|benchmarked)|our (tests|benchmarks) (show|found))\b[^.!?]{0,40}\bFX400\b/i,
+    reason:
+      "官网口径为 FX400（PCIe 6.0）2026 年底才量产、当前为厂商标称值而非实测；写成在售或已实测与官网自陈冲突",
+  },
 ];
 
 /* ---------- Numeric verification ---------- */
@@ -144,6 +151,110 @@ function findNumericViolations(markdown: string, context: string): IntegrityViol
   return violations;
 }
 
+/* ---------- Attribution verification ---------- */
+
+/**
+ * Every signed report R1-R9 names the same device under test: FX100 (the
+ * historical filenames read AISSD5000 / WS5000 / GP5000, which the site
+ * documents as former names for that one product). FX200, FX300 and FX400 are
+ * real products but have no published measurements.
+ *
+ * So the dangerous sentence is not an invented number — it is a *real* number
+ * bolted onto the wrong model. "FX300 cuts TTFT by 26-32%" is built entirely
+ * from verified parts and is still false, which makes it invisible to both the
+ * named-entity rules and the numeric allowlist above.
+ */
+const UNMEASURED_MODELS = /\bFX(200|300|400)\b/g;
+const LEGACY_NAMES = /\b(AISSD5000|WS5000|GP5000)\b/g;
+/**
+ * FX400's headline figures are publishable, but only as what they are. The
+ * site labels every number by provenance (measured / vendor / public /
+ * estimated); dropping the label is how a projection becomes a measurement.
+ */
+const VENDOR_SPEC_FIGURES = /\b(4\.8\s*Tb\/s|140\s*million\s*IOPS|1\.4\s*(亿|hundred million)\s*IOPS)\b/gi;
+const VENDOR_SPEC_LABEL = /\b(vendor[- ](spec|specification|claim|figure)|manufacturer[- ]stated|not yet measured|厂商口径)\b/i;
+/** Marks a sentence as being *about* provenance rather than asserting a result. */
+const PROVENANCE_HEDGE =
+  /\b(no published|not (yet )?(been )?(measured|benchmarked|tested)|unmeasured|former(ly)?|historical|previously|also known as|same product|renamed|report filename|naming|vendor spec|planned|roadmap|late 2026)\b/i;
+
+function sentences(markdown: string): { text: string; at: number }[] {
+  const out: { text: string; at: number }[] = [];
+  let at = 0;
+  for (const part of markdown.split(/(?<=[.!?])\s+|\n+/)) {
+    if (part.trim()) out.push({ text: part, at });
+    at += part.length + 1;
+  }
+  return out;
+}
+
+function findAttributionViolations(markdown: string, context: string): IntegrityViolation[] {
+  const allowed = allowedMetrics(context);
+  const violations: IntegrityViolation[] = [];
+  const seen = new Set<string>();
+
+  const push = (rule: string, matched: string, reason: string, at: number) => {
+    if (seen.has(`${rule}:${matched}`)) return;
+    seen.add(`${rule}:${matched}`);
+    violations.push({
+      rule,
+      matched,
+      reason,
+      excerpt: markdown.slice(Math.max(0, at - 100), at + 100).replace(/\s+/g, " ").trim(),
+    });
+  };
+
+  for (const { text, at } of sentences(markdown)) {
+    for (const figure of [...text.matchAll(VENDOR_SPEC_FIGURES)].map((m) => m[0])) {
+      if (VENDOR_SPEC_LABEL.test(text)) continue;
+      push(
+        "unlabeled-vendor-spec",
+        figure,
+        `${figure} 是 FX400 的厂商标称值，尚无实测。官网对每个数字都标注来源（实测/厂商/公开/估算），` +
+          `不带标注地引用会把一个projection读成一次测量`,
+        at,
+      );
+    }
+
+    if (PROVENANCE_HEDGE.test(text)) continue;
+
+    const models = [...text.matchAll(UNMEASURED_MODELS)].map((m) => m[0]);
+    if (models.length > 0 && !/\bFX100\b/.test(text)) {
+      // A measured figure in this sentence can only have come from an FX100
+      // report, so naming a different model attributes it to the wrong device.
+      const carriesMeasurement =
+        /\bR[1-9]\b/.test(text) ||
+        [...text.matchAll(METRIC_PATTERN)].some((m) =>
+          allowed.has(`${Number(m[1])}${normalizeUnit(m[4], m[3])}`),
+        ) ||
+        [...text.matchAll(SECONDS_PATTERN)].some((m) => allowed.has(`${Number(m[1])}s`));
+
+      if (carriesMeasurement) {
+        push(
+          "benchmark-misattribution",
+          models[0],
+          `R1–R9 全部以 FX100 为被测设备（官网证据库明示 "Device under test: Mingxin FX100"），` +
+            `${models[0]} 没有公开实测数据。把 FX100 的实测值安到 ${models[0]} 上，每个零件都是真的、` +
+            `整句话却是假的——这比编造数字更难被发现`,
+          at,
+        );
+      }
+    }
+
+    for (const legacy of [...text.matchAll(LEGACY_NAMES)].map((m) => m[0])) {
+      if (/\bFX100\b/.test(text)) continue;
+      push(
+        "legacy-name-as-product",
+        legacy,
+        `${legacy} 是 FX100 的历史称谓（仅保留在原始报告文件名中以便查证），不是在售的独立型号；` +
+          `当作单独产品来写会让读者以为铭信有更多产品线`,
+        at,
+      );
+    }
+  }
+
+  return violations;
+}
+
 /**
  * All integrity violations in a piece of text. `context` defaults to the
  * configured product context; pass it explicitly to test against a fixed set.
@@ -163,6 +274,8 @@ export function findViolations(markdown: string, context?: string): IntegrityVio
     });
   }
 
-  violations.push(...findNumericViolations(markdown, context ?? getGeoConfig().productContext));
+  const ctx = context ?? getGeoConfig().productContext;
+  violations.push(...findNumericViolations(markdown, ctx));
+  violations.push(...findAttributionViolations(markdown, ctx));
   return violations;
 }

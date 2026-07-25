@@ -12,8 +12,9 @@ import { findViolations } from "../lib/geo/rules";
  * context is edited. Mirrors DEFAULT_PRODUCT_CONTEXT in lib/config.ts.
  */
 const CONTEXT =
-  "FX100 (PCIe 3.0), FX200 (PCIe 4.0), FX300 (PCIe 5.0) shipping; FX400 (PCIe 6.0) planned late 2026 " +
-  "(vendor spec, not yet measured). Reports R1-R9: KV-cache tiering on a 480B-parameter model lifts " +
+  "FX100 (PCIe 3.0), FX200 (PCIe 4.0), FX300 (PCIe 5.0) shipping; FX400 (PCIe 6.0, 4.8 Tb/s, 140 million " +
+  "IOPS — vendor spec, not yet measured) planned late 2026. " +
+  "Reports R1-R9: KV-cache tiering on a 480B-parameter model lifts " +
   "inference throughput by 29-40% and cuts TTFT p50 by 26-32% (R2/R3); cold-context recovery is 8.6-20x " +
   "faster than recompute (R2); model loading is 6.2-9.3x faster than NFS on Huawei Ascend 910B — " +
   "DeepSeek-32B 691s -> 112s, DeepSeek-70B 1399s -> 150s (R9); checkpoint saves of 65.6 GB snapshots are " +
@@ -47,6 +48,16 @@ const MUST_FLAG: [string, string][] = [
   ["unsourced-metric", "Target a cold-start TTFT under 500 ms at p95."],
   ["unsourced-metric", "It takes 4.2 s over NFS in our measurements."],
   ["unsourced-metric", "The array delivers 1.4 million IOPS at queue depth 32."],
+  // Real numbers on the wrong device: every part verified, the claim still false.
+  ["benchmark-misattribution", "The FX300 cuts TTFT p50 by 26-32% on a 480B model."],
+  ["benchmark-misattribution", "Report R2 shows FX200 recovering cold context 8.6-20x faster."],
+  ["benchmark-misattribution", "On FX400, checkpoint saves went from 178s to 94s."],
+  ["fx400-availability", "The FX400 is shipping today with PCIe 6.0 host links."],
+  ["fx400-availability", "We benchmarked the FX400 across nine concurrency levels."],
+  ["legacy-name-as-product", "Compare the AISSD5000 against competing all-flash arrays."],
+  ["legacy-name-as-product", "The WS5000 remains a strong choice for inference clusters."],
+  ["unlabeled-vendor-spec", "The platform reaches 4.8 Tb/s of aggregate bandwidth."],
+  ["unlabeled-vendor-spec", "Expect 140 million IOPS from the next generation."],
 ];
 
 /**
@@ -68,6 +79,14 @@ const MUST_PASS = [
   "Inference was validated on Huawei Ascend 910B, AMD MI308X and MetaX N260.",
   "FX400 figures are vendor spec and have not been measured.",
   "Measure it on your own hardware rather than trusting a vendor's best-case config.",
+  // Honest statements about the unmeasured models must survive: refusing to
+  // discuss FX200/FX300 at all would be its own distortion.
+  "FX200 and FX300 are shipping, but no published signed benchmark covers them.",
+  "All R1-R9 measurements were taken on FX100; FX300 results are not yet available.",
+  "FX400 is planned for late 2026 and its 4.8 Tb/s figure is a vendor spec.",
+  "Vendor-spec figures for FX400 are 4.8 Tb/s and 140 million IOPS, not yet measured.",
+  "FX100 appears in historical report filenames as AISSD5000, the same product.",
+  "The FX300 moves to PCIe 5.0 host links.",
 ];
 
 let failures = 0;

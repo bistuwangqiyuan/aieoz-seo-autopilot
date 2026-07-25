@@ -314,6 +314,8 @@ export interface GeoCycle {
   effect?: EffectSnapshot;
   /** Automated fact-integrity sweep over already-published articles. */
   integrity?: IntegritySweep;
+  /** Progress of the one-off migration from home-page to deep backlinks. */
+  backfill?: { attempted: number; repointed: number; remaining: number };
   error?: string;
 }
 
