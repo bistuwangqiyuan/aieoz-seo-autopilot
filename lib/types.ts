@@ -316,6 +316,8 @@ export interface GeoCycle {
   integrity?: IntegritySweep;
   /** Progress of the one-off migration from home-page to deep backlinks. */
   backfill?: { attempted: number; repointed: number; remaining: number };
+  /** Maintenance steps deferred to the next cycle to stay inside the function budget. */
+  skippedForBudget?: string[];
   error?: string;
 }
 

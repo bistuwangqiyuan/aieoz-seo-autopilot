@@ -39,11 +39,14 @@ function pending(state: GeoState): GeoArticle[] {
     .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
 }
 
-export async function backfillArticleLinks(state: GeoState): Promise<BackfillResult> {
+export async function backfillArticleLinks(
+  state: GeoState,
+  deadline = Number.POSITIVE_INFINITY,
+): Promise<BackfillResult> {
   const queue = pending(state);
   const batch = queue.slice(0, PER_CYCLE);
   const result: BackfillResult = {
-    attempted: batch.length,
+    attempted: 0,
     repointed: 0,
     failures: [],
     remaining: queue.length,
@@ -54,6 +57,10 @@ export async function backfillArticleLinks(state: GeoState): Promise<BackfillRes
   const evidenceUrl = getEvidenceUrl();
 
   for (const article of batch) {
+    // Stop between articles rather than mid-article: an interrupted repoint
+    // could leave the stored markdown and the live page disagreeing.
+    if (Date.now() > deadline) break;
+    result.attempted += 1;
     try {
       const landing = await resolveLandingTarget(article.keyword);
 

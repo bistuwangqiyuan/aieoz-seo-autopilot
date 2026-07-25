@@ -20,6 +20,10 @@ export async function GET(request: Request) {
     return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
   }
 
+  // Both pipelines share this invocation's budget, and the scan runs first, so
+  // the GEO cycle is told when to stop rather than assuming a fixed allowance.
+  const deadline = Date.now() + (maxDuration - 20) * 1000;
+
   // SEO scan and GEO cycle are independent: one failing never blocks the other.
   let snapshot: Snapshot | null = null;
   let scanError: string | null = null;
@@ -33,7 +37,7 @@ export async function GET(request: Request) {
   let geo: GeoCycle | null = null;
   let geoError: string | null = null;
   try {
-    geo = await runGeoCycle("cron");
+    geo = await runGeoCycle("cron", deadline);
   } catch (err) {
     geoError = err instanceof Error ? err.message : String(err);
     console.error("[cron] geo cycle failed:", err);

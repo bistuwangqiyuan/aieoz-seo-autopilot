@@ -25,7 +25,10 @@ const repairSchema = z.object({
 /** Articles re-checked per cycle; each repair costs an AI call plus a platform edit. */
 const SWEEP_BATCH = 4;
 
-export async function runIntegritySweep(state: GeoState): Promise<IntegritySweep> {
+export async function runIntegritySweep(
+  state: GeoState,
+  deadline = Number.POSITIVE_INFINITY,
+): Promise<IntegritySweep> {
   // Oldest-checked first, so the whole corpus is revisited on a rotation
   // rather than the sweep fixating on the newest articles.
   const queue = [...state.articles].sort((a, b) =>
@@ -35,13 +38,18 @@ export async function runIntegritySweep(state: GeoState): Promise<IntegritySweep
 
   const sweep: IntegritySweep = {
     checkedAt: new Date().toISOString(),
-    checked: batch.length,
+    checked: 0,
     flagged: 0,
     repaired: 0,
     unrepaired: [],
   };
 
   for (const article of batch) {
+    // Checking is cheap; repairing costs an AI call plus a platform edit. Stop
+    // before starting one we may not be able to finish and republish.
+    if (Date.now() > deadline) break;
+    sweep.checked += 1;
+
     const violations = findViolations(article.markdown);
     article.integrityCheckedAt = sweep.checkedAt;
 

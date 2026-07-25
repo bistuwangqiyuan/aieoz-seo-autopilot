@@ -21,9 +21,26 @@ import type { GeoCycle, PublishResult } from "@/lib/types";
  *
  * Steps 4-7 are best-effort: a failure there must not lose the articles that
  * steps 1-3 just produced, so each is wrapped independently.
+ *
+ * They are also skippable. The cron route runs the SEO scan first and shares
+ * one 300s function budget with this cycle, and steps 4-6 grow with the corpus
+ * — enough of them together did overrun it, and an overrun loses everything
+ * because the state is saved at the end. Each maintenance step is therefore
+ * gated on remaining budget: skipping one costs nothing, since all of them work
+ * oldest-first and simply resume next cycle, while overrunning costs the whole
+ * run including the article just written.
  */
-export async function runGeoCycle(trigger: GeoCycle["trigger"]): Promise<GeoCycle> {
+
+/** Leave enough of the 300s function budget to finish and persist the state. */
+const RESERVE_MS = 45_000;
+
+export async function runGeoCycle(
+  trigger: GeoCycle["trigger"],
+  deadline = Date.now() + 240_000,
+): Promise<GeoCycle> {
   const start = Date.now();
+  const budgetLeft = () => deadline - Date.now();
+  const skipped: string[] = [];
   const cfg = getGeoConfig();
   const state = await getGeoState();
 
@@ -72,51 +89,63 @@ export async function runGeoCycle(trigger: GeoCycle["trigger"]): Promise<GeoCycl
   }
 
   // Step 4: migrate legacy home-page backlinks to deep landing pages.
-  try {
-    const backfill = await backfillArticleLinks(state);
-    cycle.backfill = {
-      attempted: backfill.attempted,
-      repointed: backfill.repointed,
-      remaining: backfill.remaining,
-    };
-    if (backfill.attempted > 0) {
-      console.log(
-        `[geo] backfilled ${backfill.repointed}/${backfill.attempted} article links, ${backfill.remaining} remaining`,
-      );
+  if (budgetLeft() > RESERVE_MS) {
+    try {
+      const backfill = await backfillArticleLinks(state, deadline - RESERVE_MS);
+      cycle.backfill = {
+        attempted: backfill.attempted,
+        repointed: backfill.repointed,
+        remaining: backfill.remaining,
+      };
+      if (backfill.attempted > 0) {
+        console.log(
+          `[geo] backfilled ${backfill.repointed}/${backfill.attempted} article links, ${backfill.remaining} remaining`,
+        );
+      }
+    } catch (err) {
+      console.error("[geo] link backfill failed:", err);
     }
-  } catch (err) {
-    console.error("[geo] link backfill failed:", err);
+  } else {
+    skipped.push("backfill");
   }
 
   // Step 5: re-check published articles for unsupported claims and rewrite
   // them in place. A prompt rule is a request; this is the enforcement.
-  try {
-    cycle.integrity = await runIntegritySweep(state);
-    if (cycle.integrity.flagged > 0) {
-      console.log(
-        `[geo] integrity: ${cycle.integrity.flagged} flagged, ${cycle.integrity.repaired} repaired, ` +
-          `${cycle.integrity.unrepaired.length} still failing`,
-      );
+  if (budgetLeft() > RESERVE_MS) {
+    try {
+      cycle.integrity = await runIntegritySweep(state, deadline - RESERVE_MS);
+      if (cycle.integrity.flagged > 0) {
+        console.log(
+          `[geo] integrity: ${cycle.integrity.flagged} flagged, ${cycle.integrity.repaired} repaired, ` +
+            `${cycle.integrity.unrepaired.length} still failing`,
+        );
+      }
+    } catch (err) {
+      console.error("[geo] integrity sweep failed:", err);
     }
-  } catch (err) {
-    console.error("[geo] integrity sweep failed:", err);
+  } else {
+    skipped.push("integrity");
   }
 
   // Step 6: effect measurement.
-  const cycleIndex = state.cycles.length;
-  const [citation, liveness] = await Promise.all([
-    runCitationCheck(cycleIndex).catch((err) => {
-      console.error("[geo] citation check failed:", err);
-      return null;
-    }),
-    runLivenessCheck(state, cycleIndex).catch((err) => {
-      console.error("[geo] liveness check failed:", err);
-      return null;
-    }),
-  ]);
-  cycle.effect = { citation, liveness };
-  if (citation) state.citationHistory.push(citation);
-  if (liveness && liveness.totalCount > 0) state.livenessHistory.push(liveness);
+  if (budgetLeft() > RESERVE_MS) {
+    const cycleIndex = state.cycles.length;
+    const [citation, liveness] = await Promise.all([
+      runCitationCheck(cycleIndex).catch((err) => {
+        console.error("[geo] citation check failed:", err);
+        return null;
+      }),
+      runLivenessCheck(state, cycleIndex).catch((err) => {
+        console.error("[geo] liveness check failed:", err);
+        return null;
+      }),
+    ]);
+    cycle.effect = { citation, liveness };
+    if (citation) state.citationHistory.push(citation);
+    if (liveness && liveness.totalCount > 0) state.livenessHistory.push(liveness);
+  } else {
+    skipped.push("effect");
+  }
 
   // Step 7: GA4 signal check.
   try {
@@ -133,6 +162,11 @@ export async function runGeoCycle(trigger: GeoCycle["trigger"]): Promise<GeoCycl
     }
   } catch (err) {
     console.error("[geo] signal check failed:", err);
+  }
+
+  if (skipped.length > 0) {
+    cycle.skippedForBudget = skipped;
+    console.warn(`[geo] skipped for time budget: ${skipped.join(", ")}`);
   }
 
   cycle.durationMs = Date.now() - start;

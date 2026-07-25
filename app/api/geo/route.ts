@@ -13,6 +13,7 @@ export const dynamic = "force-dynamic";
  * writer output (incl. the AI fallback chain) with zero side effects.
  */
 export async function POST(request: Request) {
+  const deadline = Date.now() + (maxDuration - 20) * 1000;
   try {
     const body = await request.json().catch(() => ({}));
     if (body?.dryRun) {
@@ -27,7 +28,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: true, dryRun: true, article });
     }
 
-    const cycle = await runGeoCycle("manual");
+    const cycle = await runGeoCycle("manual", deadline);
     return NextResponse.json({
       ok: !cycle.error,
       id: cycle.id,
