@@ -24,10 +24,18 @@ export interface BackfillResult {
   remaining: number;
 }
 
-/** Articles still pointing at the home page, oldest first. */
+/**
+ * Legacy articles awaiting migration, oldest first.
+ *
+ * Only articles predating deep linking qualify: they are the ones with neither
+ * a resolved landing kind nor a backfill marker. Queueing every unmarked
+ * article would enqueue each newly published one too — they are born pointing
+ * at a deep page — and the backlog would grow by one per cycle as fast as it
+ * drained by three, so the migration could never report itself finished.
+ */
 function pending(state: GeoState): GeoArticle[] {
   return state.articles
-    .filter((a) => !a.linkBackfilledAt)
+    .filter((a) => !a.linkBackfilledAt && !a.landingKind)
     .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
 }
 

@@ -121,7 +121,7 @@ export async function GET(request: Request) {
       backlinks: {
         total: geo.articles.length,
         deepLinked,
-        pendingBackfill: geo.articles.filter((a) => !a.linkBackfilledAt).length,
+        pendingBackfill: geo.articles.filter((a) => !a.linkBackfilledAt && !a.landingKind).length,
         lastRun: [...geo.cycles].reverse().find((c) => c.backfill)?.backfill ?? null,
       },
       lastCycle: lastCycle

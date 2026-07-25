@@ -296,7 +296,7 @@ function BacklinkMigration({ state }: { state: GeoState }) {
   if (total === 0) return null;
 
   const deep = state.articles.filter((a) => !/\/en\/?$/.test(a.referenceUrl)).length;
-  const pending = state.articles.filter((a) => !a.linkBackfilledAt).length;
+  const pending = state.articles.filter((a) => !a.linkBackfilledAt && !a.landingKind).length;
   const percent = Math.round((deep / total) * 100);
   if (pending === 0 && deep === total) return null;
 
