@@ -47,8 +47,20 @@ const RULES: Rule[] = [
     reason: "网络组网细节不在公开测试配置里，写具体互联技术即为编造",
   },
   {
+    /**
+     * NFS is handled separately from the rest. The verified context says model
+     * loading is "6.2-9.3x faster than NFS", so a comparison table row reading
+     * `| NFS | 6.2-9.3x |` puts the word and the number side by side with
+     * nothing between them — and a pattern accepting "NFS 6.2" reads that as a
+     * version number and flags a correct, sourced sentence. A false positive
+     * here is not harmless: it sends a good article to be rewritten.
+     *
+     * Real NFS versions are written NFSv4.1 or NFS v4.1, so requiring the "v"
+     * keeps the rule while removing the collision. (There is also no NFS 6.2 —
+     * the protocol stops at 4.2.)
+     */
     id: "invented-version",
-    pattern: /\b(vLLM|CANN|LMCache|NFSv?)\s?v?\d+(\.\d+)+/i,
+    pattern: /\b(vLLM|CANN|LMCache)\s?v?\d+(\.\d+)+|\bNFS\s?v\d+(\.\d+)*/i,
     reason: "公开材料未标注软件具体版本号，精确到版本会造成不可复现的引用",
   },
   {

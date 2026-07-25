@@ -35,6 +35,8 @@ const MUST_FLAG: [string, string][] = [
   ["invented-fabric", "The fabric runs RoCE v2 with PFC enabled."],
   ["invented-version", "Running vLLM 0.6.3 with LMCache enabled."],
   ["invented-version", "Identical CANN 7.0 stack on both sides."],
+  ["invented-version", "The baseline mounted NFSv4.1 over TCP."],
+  ["invented-version", "The baseline mounted NFS v4.1 over TCP."],
   ["security-claim", "Every report is cryptographically signed by the lab."],
   ["invented-firmware", "Controller firmware version 2.14.7 was used."],
   ["invented-source", "Documented in production telemetry logs from three operators."],
@@ -73,6 +75,10 @@ const MUST_PASS = [
   "Checkpoint saves of a 65.6 GB snapshot went from 178s to 94s, 1.9x faster (R1).",
   "An LMCache parallel-read patch improved cold-read TTFT 4.1x, 37.97s to 9.30s (R1).",
   "Model loading is 6.2-9.3x faster than NFS on the Huawei Ascend 910B platform.",
+  // A comparison table puts the baseline's name next to its figure. Read as a
+  // flat string that is "NFS 6.2", which must not be mistaken for a version.
+  "| Baseline | Result |\n| --- | --- |\n| NFS | 6.2-9.3x slower to load |",
+  "Loading was slower over NFS. 6.2-9.3x is the measured gap (R9).",
   "Benchmarks are reproducible from the open-source mingxin-kvcache-bench repository.",
   "The array exposes namespaces over NVMe-oF rather than a POSIX NFS mount.",
   "No published signed benchmark covers this workload.",

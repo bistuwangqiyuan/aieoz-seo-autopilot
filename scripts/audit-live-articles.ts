@@ -23,10 +23,22 @@ interface StatusArticle {
   published: { platform: string; url: string | null }[];
 }
 
-type TgNode = string | { children?: TgNode[] };
+type TgNode = string | { tag?: string; children?: TgNode[] };
 
+/** Tags that end a line of text; their contents must not run into the next. */
+const BLOCK_TAGS = new Set(["p", "h3", "h4", "li", "blockquote", "pre", "figure", "hr"]);
+
+/**
+ * Telegraph stores content as a node tree, and collapsing it with a plain space
+ * fuses text that is visually separate — a table row's cells, or the end of one
+ * paragraph and the start of the next. That manufactured adjacency reads as a
+ * claim nobody made: "…than NFS" followed by a cell of "6.2-9.3x" became
+ * "NFS 6.2", which the version rule then flagged on three correct articles.
+ */
 function flatten(node: TgNode): string {
-  return typeof node === "string" ? node : (node.children ?? []).map(flatten).join(" ");
+  if (typeof node === "string") return node;
+  const inner = (node.children ?? []).map(flatten).join("");
+  return node.tag && BLOCK_TAGS.has(node.tag) ? `${inner}\n` : inner;
 }
 
 /**
@@ -46,7 +58,7 @@ async function fetchTelegraph(url: string): Promise<{ title: string; text: strin
   if (!data.ok || !data.result) return null;
   return {
     title: data.result.title ?? "",
-    text: (data.result.content ?? []).map(flatten).join(" "),
+    text: (data.result.content ?? []).map(flatten).join("\n"),
   };
 }
 
