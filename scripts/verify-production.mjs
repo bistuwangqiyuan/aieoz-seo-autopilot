@@ -1,23 +1,10 @@
 // Acceptance check against the live deployment. Each assertion maps to one of
 // the criteria in the rollout plan, so a green run means the plan's phases are
 // verifiably done rather than merely deployed.
-import { readFileSync } from "node:fs";
+import { loadEnv, fetchStatus } from "./_env.mjs";
 
-const env = {};
-for (const line of readFileSync(".env.local", "utf8").split(/\r?\n/)) {
-  const m = line.match(/^([A-Z0-9_]+)="?([^"\r]*)"?\s*$/);
-  if (m) env[m[1]] = m[2];
-}
-
-const BASE = process.env.APP_URL ?? "https://www.clawpro.pw";
-const res = await fetch(`${BASE}/api/status`, {
-  headers: { Authorization: `Bearer ${env.CRON_SECRET}` },
-});
-if (!res.ok) {
-  console.error(`status endpoint HTTP ${res.status}`);
-  process.exit(1);
-}
-const d = await res.json();
+const env = loadEnv();
+const d = await fetchStatus(env.CRON_SECRET);
 
 const checks = [];
 const check = (phase, label, ok, note = "") => checks.push({ phase, label, ok, note });

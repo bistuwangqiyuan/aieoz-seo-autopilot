@@ -167,7 +167,14 @@ npx tsx --env-file=.env.local scripts/test-landing.ts         # 落地页解析�
 npx tsx --env-file=.env.local scripts/test-article.ts         # 端到端生成一篇并逐项校验（含零违规断言）
 npx tsx --env-file=.env.local scripts/audit-live-articles.ts  # 线上正文合规核查（只读）
 node scripts/verify-production.mjs                            # 对线上部署逐条核验各阶段验收标准
+node scripts/converge.mjs                                     # 反复触发线上循环直至维护队列清空（见下）
 ```
+
+单轮 GEO 循环的工作量受函数时限约束：回链改写与一致性巡检每轮只处理一批，
+其余留给下一轮。无人值守时 4 小时一轮自会排空队列；但**规则版本变更后**希望
+立即让全量语料重新过一遍，可跑 `converge.mjs`——它每轮打印
+`backfill / stale-for-rules / flagged` 三个数，清零才退出，连续两轮无进展则
+判定卡住并报错退出，不会空转。
 
 ## SEO 评分维度
 

@@ -1,16 +1,7 @@
 // One-shot: operational report — cycle timeline by trigger, score trend, articles.
-import { readFileSync } from "node:fs";
+import { loadEnv, fetchStatus } from "./_env.mjs";
 
-const env = {};
-for (const line of readFileSync(".env.local", "utf8").split(/\r?\n/)) {
-  const m = line.match(/^([A-Z0-9_]+)="?([^"\r]*)"?\s*$/);
-  if (m) env[m[1]] = m[2];
-}
-const d = await (
-  await fetch("https://www.clawpro.pw/api/status", {
-    headers: { Authorization: `Bearer ${env.CRON_SECRET}` },
-  })
-).json();
+const d = await fetchStatus(loadEnv().CRON_SECRET);
 
 console.log("storage:", d.storage, "| aiChain:", d.aiChain);
 console.log("latest scan:", d.scan.id, "score:", d.scan.score, "ai:", d.scan.aiGenerated, "model:", d.scan.model);
